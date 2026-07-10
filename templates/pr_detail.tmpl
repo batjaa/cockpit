@@ -1,0 +1,244 @@
+{{define "content"}}
+<a href="/" class="text-sm text-zinc-500 hover:text-zinc-900">← all reviews</a>
+
+<div class="mt-4 mb-8">
+  <div class="text-xs text-zinc-500 mono">
+    {{.PR.Owner}}/{{.PR.Repo}} #{{.PR.Number}}
+    {{if eq .PR.PRState "MERGED"}}<span class="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded ml-1">merged</span>{{end}}
+    {{if eq .PR.PRState "CLOSED"}}<span class="bg-red-100 text-red-700 px-1.5 py-0.5 rounded ml-1">closed</span>{{end}}
+  </div>
+  <h1 class="text-2xl font-semibold mt-0.5">{{.PR.Title}}</h1>
+  <div class="text-sm text-zinc-500 mt-2 flex items-center gap-2">
+    <span>{{.PR.Author}}</span>
+    <span class="text-zinc-300">·</span>
+    <a href="{{.PR.URL}}" target="_blank" rel="noopener" class="hover:text-zinc-900 underline decoration-zinc-300 underline-offset-2">View on GitHub</a>
+    <span class="text-zinc-300">·</span>
+    <span class="mono text-xs">{{.HeadShort}}</span>
+  </div>
+</div>
+
+{{if eq .State "pending"}}
+<div class="bg-white border border-zinc-200 rounded-lg p-5 mb-8">
+  <div class="flex items-baseline justify-between mb-2">
+    <div class="text-xs text-zinc-500 uppercase tracking-wide">Summary — posted as the review body</div>
+    <div id="summary-status" class="text-xs text-zinc-400"></div>
+  </div>
+  <textarea id="summary-edit" rows="3"
+            placeholder="Write the top-level review comment addressed to the author…"
+            class="w-full text-sm text-zinc-900 leading-relaxed resize-none border-0 p-0 focus:ring-0 focus:outline-none bg-transparent">{{.Summary}}</textarea>
+</div>
+{{else if .Summary}}
+<div class="bg-white border border-zinc-200 rounded-lg p-5 mb-8">
+  <div class="text-xs text-zinc-500 uppercase tracking-wide mb-2">Summary</div>
+  <div class="text-sm text-zinc-900 leading-relaxed">{{.Summary}}</div>
+</div>
+{{end}}
+
+{{if .Followups}}
+<section class="mb-8">
+  <h2 class="text-sm font-semibold text-zinc-700 mb-3">Previous review</h2>
+  <div class="bg-white rounded-lg border border-zinc-200 divide-y divide-zinc-100">
+    {{range .Followups}}
+    <div class="px-4 py-2.5 flex items-start gap-3">
+      {{if eq .Status "addressed"}}<span class="mono text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded shrink-0">✓ addressed</span>{{end}}
+      {{if eq .Status "outstanding"}}<span class="mono text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded shrink-0">⚠ outstanding</span>{{end}}
+      {{if eq .Status "disputed"}}<span class="mono text-xs bg-zinc-100 text-zinc-600 px-2 py-1 rounded shrink-0">✋ disputed</span>{{end}}
+      <div class="min-w-0 text-sm">
+        <span class="mono text-xs text-zinc-500">{{.Path}}:{{.Line}}</span>
+        <span class="text-zinc-900 ml-1.5">{{.Note}}</span>
+        {{if .FindingID}}<span class="mono text-xs text-zinc-400 ml-1.5">re-raised as {{.FindingID}}</span>{{end}}
+      </div>
+    </div>
+    {{end}}
+  </div>
+</section>
+{{end}}
+
+<div class="space-y-6">
+  {{range .Severities}}
+  {{if .Comments}}
+  <section>
+    <h2 class="text-sm font-semibold text-zinc-700 mb-3 flex items-center gap-2">
+      <span>{{.Icon}} {{.Label}}</span>
+      <span class="text-zinc-400 font-normal">{{len .Comments}}</span>
+    </h2>
+    <div class="space-y-2">
+      {{range .Comments}}
+      <label class="block bg-white border border-zinc-200 rounded-lg p-4 cursor-pointer hover:border-zinc-300 has-[:checked]:border-zinc-900 has-[:checked]:bg-zinc-50">
+        <div class="flex gap-3">
+          <input type="checkbox"
+                 class="mt-1.5 comment-toggle accent-zinc-900"
+                 data-id="{{.ID}}"
+                 {{if .Selected}}checked{{end}}>
+          <div class="flex-1 min-w-0">
+            <div class="text-xs mono text-zinc-500 mb-1.5">{{.Path}}:{{.Line}}</div>
+            <div class="prose prose-sm prose-zinc max-w-none prose-pre:bg-zinc-900 prose-pre:text-zinc-100 prose-code:before:content-none prose-code:after:content-none">{{.BodyHTML}}</div>
+          </div>
+        </div>
+      </label>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
+  {{end}}
+</div>
+
+{{if not .HasAnyComments}}
+<div class="bg-white border border-zinc-200 rounded-lg p-12 text-center text-zinc-500 text-sm">
+  No findings on this review.
+</div>
+{{end}}
+
+{{if eq .State "pending"}}
+<div class="sticky bottom-0 mt-8 -mx-6 px-6 py-4 bg-white border-t border-zinc-200">
+  <div class="max-w-5xl mx-auto flex items-center justify-between gap-4 flex-wrap">
+    <fieldset class="flex items-center gap-4 text-sm" id="submit-event">
+      <label class="flex items-center gap-1.5 cursor-pointer">
+        <input type="radio" name="event" value="COMMENT" checked class="accent-zinc-900"> Comment
+      </label>
+      <label class="flex items-center gap-1.5 cursor-pointer">
+        <input type="radio" name="event" value="APPROVE" class="accent-emerald-600"> Approve
+      </label>
+      <label class="flex items-center gap-1.5 cursor-pointer">
+        <input type="radio" name="event" value="REQUEST_CHANGES" class="accent-red-600"> Request changes
+      </label>
+    </fieldset>
+    <div class="flex items-center gap-3">
+      <button id="dismiss-btn" class="text-sm text-zinc-500 hover:text-zinc-900">Dismiss review</button>
+      <button id="submit-btn" class="mono text-xs px-4 py-2 rounded bg-zinc-900 text-white hover:bg-zinc-700 disabled:opacity-40">
+        Submit review
+      </button>
+    </div>
+  </div>
+  <div id="submit-result" class="max-w-5xl mx-auto mt-2 text-sm hidden"></div>
+</div>
+{{else}}
+<div class="mt-8 bg-zinc-100 border border-zinc-200 rounded-lg px-5 py-3 text-sm text-zinc-600">
+  This review is <span class="font-semibold">{{.State}}</span> — no further actions available.
+</div>
+{{end}}
+
+<script>
+document.querySelectorAll('.comment-toggle').forEach(cb => {
+  cb.addEventListener('change', async (e) => {
+    const id = e.target.dataset.id;
+    const selected = e.target.checked;
+    const res = await fetch(`/comments/${id}`, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({selected})
+    });
+    if (!res.ok) {
+      e.target.checked = !selected;
+      alert('Failed to save: ' + (await res.text()));
+    }
+  });
+});
+
+(function() {
+  const ta = document.getElementById('summary-edit');
+  if (!ta) return; // review not pending
+  const status = document.getElementById('summary-status');
+
+  const autosize = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
+  autosize();
+
+  let timer = null;
+  let lastSaved = ta.value;
+  const save = async () => {
+    if (ta.value === lastSaved) return;
+    status.textContent = 'saving…';
+    try {
+      const res = await fetch(`/reviews/{{.ReviewID}}`, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({summary: ta.value})
+      });
+      if (res.ok) {
+        lastSaved = ta.value;
+        status.textContent = 'saved';
+        status.className = 'text-xs text-emerald-600';
+      } else {
+        status.textContent = 'save failed: ' + (await res.text());
+        status.className = 'text-xs text-red-600';
+      }
+    } catch (err) {
+      status.textContent = 'save failed: ' + err;
+      status.className = 'text-xs text-red-600';
+    }
+  };
+
+  ta.addEventListener('input', () => {
+    autosize();
+    status.textContent = '';
+    clearTimeout(timer);
+    timer = setTimeout(save, 800);
+  });
+  ta.addEventListener('blur', () => { clearTimeout(timer); save(); });
+
+  // Submit must not race the debounce — it awaits this before posting.
+  window.flushSummary = () => { clearTimeout(timer); return save(); };
+})();
+
+(function() {
+  const submitBtn = document.getElementById('submit-btn');
+  const dismissBtn = document.getElementById('dismiss-btn');
+  if (!submitBtn) return; // review not pending
+
+  const result = document.getElementById('submit-result');
+  const show = (msg, ok) => {
+    result.classList.remove('hidden');
+    result.className = 'max-w-5xl mx-auto mt-2 text-sm ' + (ok ? 'text-emerald-700' : 'text-red-700');
+    result.textContent = msg;
+  };
+
+  submitBtn.addEventListener('click', async () => {
+    const event = document.querySelector('#submit-event input:checked').value;
+    const selected = document.querySelectorAll('.comment-toggle:checked').length;
+    const label = event === 'COMMENT' ? 'post ' + selected + ' comment(s)'
+                : event.toLowerCase().replace('_', ' ') + ' with ' + selected + ' comment(s)';
+    if (!confirm('Submit review to GitHub: ' + label + '?')) return;
+
+    submitBtn.disabled = true;
+    try {
+      if (window.flushSummary) await window.flushSummary();
+      const res = await fetch(`/pr/{{.ReviewID}}/submit`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({event})
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        show(text, false);
+        submitBtn.disabled = false;
+        return;
+      }
+      const data = JSON.parse(text);
+      show('Posted ' + data.posted_comments + ' comment(s). Reloading…', true);
+      setTimeout(() => location.reload(), 1200);
+    } catch (err) {
+      show('submit failed: ' + err, false);
+      submitBtn.disabled = false;
+    }
+  });
+
+  dismissBtn.addEventListener('click', async () => {
+    // Claim the button before confirm() so a double-fired click can't open
+    // a second dialog while the first is still open.
+    if (dismissBtn.disabled) return;
+    dismissBtn.disabled = true;
+    if (!confirm('Dismiss this review? It will disappear from the pending list.')) {
+      dismissBtn.disabled = false; // cancelled — allow a retry
+      return;
+    }
+    const res = await fetch(`/pr/{{.ReviewID}}/dismiss`, {method: 'POST'});
+    if (res.ok) {
+      location.href = '/';
+    } else {
+      dismissBtn.disabled = false;
+      show(await res.text(), false);
+    }
+  });
+})();
+</script>
+{{end}}

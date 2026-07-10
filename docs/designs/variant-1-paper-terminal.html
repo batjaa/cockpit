@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Paper Terminal — cockpit</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  html, body { font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace; }
+  .ink { color: #1F1B16; }
+  .rule { background: #1F1B16; }
+  .hair { border-color: #1F1B16; }
+  .hair-soft { border-color: rgba(31, 27, 22, 0.18); }
+  .accent { color: #C84A1F; }
+  .accent-bg { background: #C84A1F; color: #F5F1E8; }
+  .grid-bg {
+    background-image:
+      linear-gradient(rgba(31,27,22,0.05) 1px, transparent 1px);
+    background-size: 100% 22px;
+  }
+</style>
+</head>
+<body class="bg-[#F5F1E8] ink antialiased text-[12px] leading-[1.55]">
+
+<!-- top rule + masthead -->
+<div class="hair border-t-2"></div>
+<header class="hair border-b">
+  <div class="px-6 py-2 flex flex-wrap items-baseline gap-x-6 gap-y-1">
+    <div class="text-[18px] font-semibold tracking-tight">COCKPIT<span class="accent">.</span></div>
+    <div class="opacity-70">2026 · 06 · 17 · WED · 14:32 PT</div>
+    <div class="opacity-70">SYNCED 12s ago · gh ✓ · slack ✓ · jira ✓ · datadog ✓ · gmail ✓ · zoom ✓</div>
+    <div class="ml-auto flex items-center gap-3">
+      <span class="opacity-70">14 unprocessed</span>
+      <span class="accent">· 3 sla-risk</span>
+      <span class="opacity-70">· 6 cross-org</span>
+    </div>
+  </div>
+  <div class="px-6 pb-2 flex items-center gap-3 text-[11px] uppercase tracking-[0.18em]">
+    <span class="font-semibold border-b-2 hair pb-0.5">map</span>
+    <span class="opacity-50">stream</span>
+    <span class="opacity-50">staff radar</span>
+    <span class="opacity-50">brag log</span>
+    <span class="opacity-50">archive</span>
+    <span class="ml-auto opacity-50">[ / ] search · [ ? ] keys</span>
+  </div>
+</header>
+
+<!-- 3 column ledger -->
+<main class="grid grid-cols-12 hair border-b min-h-[calc(100vh-92px)]">
+
+  <!-- COL 1 — workstream tree -->
+  <section class="col-span-12 lg:col-span-3 hair lg:border-r p-5">
+    <div class="flex items-baseline justify-between mb-3">
+      <h2 class="text-[11px] uppercase tracking-[0.18em] font-semibold">Workstreams</h2>
+      <button class="text-[11px] underline opacity-70 hover:opacity-100">+ new</button>
+    </div>
+    <ul class="space-y-1">
+      <li>
+        <div class="flex items-baseline justify-between gap-2 bg-[#1F1B16] text-[#F5F1E8] px-2 py-1 -mx-2">
+          <span class="truncate">▾ Credits v1 <span class="opacity-60">AII-2852</span></span>
+          <span class="accent">[!]</span>
+        </div>
+      </li>
+      <li class="pl-2 mt-1 border-l hair-soft">
+        <ul class="pl-2 space-y-0.5 text-[11.5px]">
+          <li class="opacity-80">├─ engineering</li>
+          <li class="pl-3 opacity-80">│  ├─ <span class="opacity-60">[✓]</span> PR #48199 audit sweep <span class="opacity-50">merged</span></li>
+          <li class="pl-3"><span class="accent">│  ├─ [!] PR #48201 balance flag · blocker × 1</span></li>
+          <li class="pl-3 opacity-80">│  └─ <span class="opacity-60">[✓]</span> AII-3233 done</li>
+          <li class="opacity-80">├─ cross-team asks</li>
+          <li class="pl-3 opacity-80">│  ├─ <span class="opacity-60">[✓]</span> IAM scope check <span class="opacity-50">6d</span></li>
+          <li class="pl-3"><span class="accent">│  ├─ [!] Billing refund hook · 14d stale</span></li>
+          <li class="pl-3 opacity-80">│  └─ [·] Mobile kill switch · drafted</li>
+          <li class="opacity-80">└─ signals</li>
+          <li class="pl-3 opacity-80">   ├─ [✓] LD flag · 80% no anomaly</li>
+          <li class="pl-3 opacity-80">   ├─ [·] DD gocredits p99 +18% w/w</li>
+          <li class="pl-3 opacity-80">   └─ [✓] Mixpanel redeem +4.2%</li>
+        </ul>
+      </li>
+
+      <li class="pt-3"><div class="flex items-baseline justify-between"><span>▸ Balance Audit Sweep <span class="opacity-60">AII-3233</span></span><span class="opacity-60">[✓]</span></div></li>
+      <li><div class="flex items-baseline justify-between"><span class="accent">▸ EP Capacity Q3 model · ⚑ Fri</span><span class="accent">[!]</span></div></li>
+      <li><div class="flex items-baseline justify-between"><span>▸ Cross-org IAM RFC <span class="opacity-60">staff</span></span><span class="opacity-60">[·]</span></div></li>
+      <li><div class="flex items-baseline justify-between"><span>▸ Mentoring · Maya (jr)</span><span class="opacity-60">[✓]</span></div></li>
+      <li><div class="flex items-baseline justify-between"><span class="opacity-70">▸ ⚪ Inbox · 6 unassigned</span><span class="opacity-60">[·]</span></div></li>
+    </ul>
+
+    <div class="mt-6 hair border-t pt-3">
+      <div class="text-[11px] uppercase tracking-[0.18em] font-semibold mb-2">Legend</div>
+      <ul class="space-y-0.5 opacity-80 text-[11px]">
+        <li>[✓] done · stable</li>
+        <li>[·] in flight</li>
+        <li class="accent">[!] needs you · sla-risk</li>
+        <li>[✕] dropped · dismissed</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- COL 2 — detail panel -->
+  <section class="col-span-12 lg:col-span-6 hair lg:border-r p-5">
+    <div class="flex items-baseline justify-between mb-1">
+      <h1 class="text-[20px] font-semibold tracking-tight">Credits v1 <span class="opacity-60 text-[14px] font-normal">AII-2852</span></h1>
+      <span class="accent-bg text-[10px] px-1.5 py-0.5 tracking-[0.15em] uppercase">needs nudge</span>
+    </div>
+    <div class="opacity-70 mb-4">
+      owner you · sponsor @scicero · started 2026-03-12 · target 2026-07-15 · rollout 80%
+    </div>
+
+    <!-- meta strip -->
+    <div class="grid grid-cols-4 hair border-t border-b py-2 text-[11px]">
+      <div><div class="opacity-60 uppercase tracking-[0.15em]">PRs open</div><div class="text-[15px] mt-0.5">2 <span class="opacity-60 text-[11px]">· 1 blocker</span></div></div>
+      <div><div class="opacity-60 uppercase tracking-[0.15em]">Asks</div><div class="text-[15px] mt-0.5">3 <span class="accent text-[11px]">· 1 stale</span></div></div>
+      <div><div class="opacity-60 uppercase tracking-[0.15em]">p99 30d</div><div class="text-[15px] mt-0.5">↑ 18% <span class="opacity-60 text-[11px]">unclear</span></div></div>
+      <div><div class="opacity-60 uppercase tracking-[0.15em]">Δ rollout</div><div class="text-[15px] mt-0.5">60→80%</div></div>
+    </div>
+
+    <!-- ai draft -->
+    <div class="mt-4 hair border p-3 grid-bg">
+      <div class="flex items-baseline justify-between mb-2">
+        <div class="text-[11px] uppercase tracking-[0.18em] font-semibold">Drafted next actions <span class="opacity-50">— claude · 14:31</span></div>
+        <div class="flex gap-1">
+          <button class="hair border px-2 py-0.5 text-[11px] hover:bg-[#1F1B16] hover:text-[#F5F1E8]">accept all</button>
+          <button class="hair border px-2 py-0.5 text-[11px] hover:bg-[#1F1B16] hover:text-[#F5F1E8]">regen</button>
+        </div>
+      </div>
+      <ol class="space-y-1 text-[12.5px]">
+        <li><span class="accent">01 ·</span> DM @billing-team lead — 1-sentence escalation on refund-hook ask (14d).</li>
+        <li><span class="accent">02 ·</span> Reply to Adam's blocker on PR #48201 (write/regen).</li>
+        <li>03 · Decide whether p99 +18% is a rollback signal — open the DD board.</li>
+        <li>04 · Outline EP capacity model section 1 (60m focus block, Fri deadline).</li>
+      </ol>
+    </div>
+
+    <!-- sections -->
+    <div class="grid grid-cols-2 gap-5 mt-5">
+      <div>
+        <div class="text-[11px] uppercase tracking-[0.18em] font-semibold mb-2">Engineering</div>
+        <table class="w-full text-[11.5px]">
+          <tbody class="divide-y hair-soft">
+            <tr><td class="py-1.5 pr-2"><span class="accent">[!]</span></td><td class="py-1.5 pr-2">PR #48201</td><td class="py-1.5 opacity-80">balance flag audit</td><td class="py-1.5 text-right opacity-60">2d</td></tr>
+            <tr><td class="py-1.5 pr-2 opacity-60">[✓]</td><td class="py-1.5 pr-2 opacity-80">PR #48199</td><td class="py-1.5 opacity-50 line-through">audit sweep</td><td class="py-1.5 text-right opacity-60">merged</td></tr>
+            <tr><td class="py-1.5 pr-2 opacity-60">[✓]</td><td class="py-1.5 pr-2 opacity-80">AII-3233</td><td class="py-1.5 opacity-50 line-through">sweep ticket</td><td class="py-1.5 text-right opacity-60">done</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div class="text-[11px] uppercase tracking-[0.18em] font-semibold mb-2">Cross-team asks</div>
+        <table class="w-full text-[11.5px]">
+          <tbody class="divide-y hair-soft">
+            <tr><td class="py-1.5 pr-2 opacity-60">[✓]</td><td class="py-1.5 pr-2 opacity-80">@iam-team</td><td class="py-1.5 opacity-80">scope check</td><td class="py-1.5 text-right opacity-60">6d</td></tr>
+            <tr><td class="py-1.5 pr-2"><span class="accent">[!]</span></td><td class="py-1.5 pr-2 accent">@billing</td><td class="py-1.5">refund hook · no reply</td><td class="py-1.5 text-right accent">14d</td></tr>
+            <tr><td class="py-1.5 pr-2 opacity-60">[·]</td><td class="py-1.5 pr-2 opacity-80">@mobile</td><td class="py-1.5 opacity-80">kill switch · drafted</td><td class="py-1.5 text-right opacity-60">3d</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div class="text-[11px] uppercase tracking-[0.18em] font-semibold mb-2">Signals</div>
+        <table class="w-full text-[11.5px]">
+          <tbody class="divide-y hair-soft">
+            <tr><td class="py-1.5 pr-2 opacity-60">[✓]</td><td class="py-1.5 opacity-80">LD flag · 80% — no anomaly correlation</td></tr>
+            <tr><td class="py-1.5 pr-2 opacity-60">[·]</td><td class="py-1.5">DD · gocredits.balance.p99 +18% w/w</td></tr>
+            <tr><td class="py-1.5 pr-2 opacity-60">[✓]</td><td class="py-1.5 opacity-80">Mixpanel redemption +4.2%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div class="text-[11px] uppercase tracking-[0.18em] font-semibold mb-2">Docs · obsidian mirror</div>
+        <ul class="text-[11.5px] space-y-0.5 opacity-80">
+          <li>· workstreams/credits-v1.md <span class="opacity-60">↻ 12s</span></li>
+          <li>· asks/billing-refund-hook.md <span class="opacity-60">↻ 14d</span></li>
+          <li>· decisions/credits-v1-rollback-policy.md <span class="opacity-60">↻ 5d</span></li>
+          <li>· brag-log/2026-q2.md <span class="opacity-60">↻ 1d</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- COL 3 — inbox stream -->
+  <aside class="col-span-12 lg:col-span-3 p-5">
+    <div class="flex items-baseline justify-between mb-3">
+      <h2 class="text-[11px] uppercase tracking-[0.18em] font-semibold">Inbox · stream</h2>
+      <div class="flex gap-2 text-[11px]">
+        <span class="font-semibold underline">all</span>
+        <span class="opacity-60">needs me</span>
+        <span class="opacity-60">waiting</span>
+      </div>
+    </div>
+
+    <ul class="divide-y hair-soft text-[11.5px]">
+      <li class="py-2">
+        <div class="flex items-baseline justify-between"><span class="accent font-semibold">[!] 09:42 PR</span><span class="opacity-60">→ Credits v1</span></div>
+        <div class="mt-0.5">owner/repo #48201</div>
+        <div class="opacity-70">Adam left 3 review comments — 1 blocker.</div>
+      </li>
+      <li class="py-2">
+        <div class="flex items-baseline justify-between"><span class="accent font-semibold">[!] 09:30 SLACK</span><span class="opacity-60">→ Staff radar</span></div>
+        <div class="mt-0.5">@scicero · #ep-platform</div>
+        <div class="opacity-70">"can you take a look at the RFC for cross-org IAM?"</div>
+      </li>
+      <li class="py-2">
+        <div class="flex items-baseline justify-between"><span>[·] 09:15 JIRA</span><span class="opacity-60">→ Credits v1</span></div>
+        <div class="mt-0.5">AII-3260 reassigned to you</div>
+        <div class="opacity-70">balance drift for refunded credits</div>
+      </li>
+      <li class="py-2">
+        <div class="flex items-baseline justify-between"><span>[·] 08:55 ZOOM</span><span class="opacity-60">→ Q3 planning</span></div>
+        <div class="mt-0.5">Weekly EP sync · 2 todos extracted</div>
+        <div class="opacity-70">you · draft EP capacity model by Fri</div>
+      </li>
+      <li class="py-2">
+        <div class="flex items-baseline justify-between"><span class="opacity-60">[·] 08:30 LD</span><span class="opacity-60">→ Credits v1</span></div>
+        <div class="mt-0.5">flag credits-v1-rollout · 60 → 80%</div>
+        <div class="opacity-70">no anomaly correlation in datadog</div>
+      </li>
+      <li class="py-2">
+        <div class="flex items-baseline justify-between"><span class="accent font-semibold">[!] yesterday EMAIL</span><span class="opacity-60">→ Inbox</span></div>
+        <div class="mt-0.5">legal@example.com · DPA for vendor X</div>
+        <div class="opacity-70">sign by Wed.</div>
+      </li>
+
+      <!-- empty state -->
+      <li class="py-4 text-center opacity-60 border-t hair-soft mt-3">
+        — older items archived · obsidian mirror up to date —
+      </li>
+    </ul>
+
+    <!-- loading state demo -->
+    <div class="mt-4 hair-soft border-t pt-3">
+      <div class="text-[10px] uppercase tracking-[0.18em] opacity-50 mb-1">scanning sources…</div>
+      <div class="space-y-1">
+        <div class="h-2 rule opacity-10 w-5/6"></div>
+        <div class="h-2 rule opacity-10 w-3/4"></div>
+        <div class="h-2 rule opacity-10 w-2/3"></div>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<!-- footer -->
+<footer class="px-6 py-2 text-[10.5px] uppercase tracking-[0.18em] flex flex-wrap items-center gap-x-6 gap-y-1 opacity-70">
+  <span>cockpit v0.3 · local 127.0.0.1:8765</span>
+  <span>obsidian vault · ~/cockpit-vault</span>
+  <span>scheduler · next run 18:00</span>
+  <span class="ml-auto">"never miss a thing"</span>
+</footer>
+<div class="hair border-b-2"></div>
+
+</body>
+</html>

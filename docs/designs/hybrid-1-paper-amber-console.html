@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Paper Amber Console — cockpit</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  html, body { font-family: 'Space Grotesk', system-ui, sans-serif; }
+  .mono     { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+  /* palette — warm paper + ink + single amber accent */
+  .paper      { background: #F5F1E8; }
+  .paper-card { background: #FBF8F1; }
+  .paper-sink { background: #ECE6D6; }
+  .ink        { color: #1F1B16; }
+  .muted      { color: #756E60; }
+  .dim        { color: #A89F8C; }
+  .edge       { border-color: #C8C3B5; }
+  .edge-soft  { border-color: #DCD6C5; }
+  .amber      { color: #B26A12; }
+  .amber-bg   { background: #D88A2C; color: #1F1B16; }
+  .amber-soft { background: #F2DBB5; color: #6E3F00; }
+
+  /* status dot is amber if alert; outline-only if not — never rainbow */
+  .dot         { width: 7px; height: 7px; display: inline-block; border-radius: 9999px; vertical-align: middle; }
+  .dot-amber   { background: #D88A2C; }
+  .dot-ok      { background: transparent; border: 1px solid #1F1B16; }
+  .dot-dim     { background: transparent; border: 1px solid #A89F8C; }
+
+  /* clickable affordance — everything interactive gets a thin baseline + hover bg */
+  .actionable { transition: background-color 120ms ease; cursor: pointer; }
+  .actionable:hover { background: #ECE6D6; }
+
+  kbd {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 10px;
+    background: #FBF8F1;
+    border: 1px solid #C8C3B5;
+    border-bottom-width: 2px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: #1F1B16;
+  }
+
+  .grid-rule {
+    background-image: linear-gradient(rgba(31,27,22,0.05) 1px, transparent 1px);
+    background-size: 100% 24px;
+  }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: #F5F1E8; }
+  ::-webkit-scrollbar-thumb { background: #C8C3B5; border-radius: 4px; }
+</style>
+</head>
+<body class="paper ink antialiased text-[13px] leading-[1.55] min-h-screen">
+
+<!-- ────── masthead ────── -->
+<header class="border-b edge">
+  <div class="flex flex-wrap items-baseline gap-x-6 gap-y-2 px-6 py-3">
+    <div class="flex items-baseline gap-2">
+      <span class="dot dot-amber"></span>
+      <span class="mono text-[15px] font-semibold tracking-[0.16em]">COCKPIT</span>
+      <span class="muted mono text-[10.5px]">v0.3</span>
+    </div>
+    <span class="muted mono text-[11px]">2026-06-17 · WED · 14:32 PT</span>
+
+    <!-- per-source health pills (kept from C, no dark) -->
+    <div class="flex items-center gap-1.5 mono text-[10.5px]">
+      <span class="px-1.5 py-0.5 paper-card border edge rounded-sm"><span class="dot dot-ok mr-1"></span>slack 12s</span>
+      <span class="px-1.5 py-0.5 paper-card border edge rounded-sm"><span class="dot dot-ok mr-1"></span>gh 1m</span>
+      <span class="px-1.5 py-0.5 paper-card border edge rounded-sm"><span class="dot dot-ok mr-1"></span>jira 38s</span>
+      <span class="px-1.5 py-0.5 paper-card border edge rounded-sm"><span class="dot dot-ok mr-1"></span>dd 2m</span>
+      <span class="px-1.5 py-0.5 amber-soft border edge rounded-sm" title="last scan failed, retrying"><span class="dot dot-amber mr-1"></span>zoom · retry</span>
+      <span class="px-1.5 py-0.5 paper-card border edge rounded-sm"><span class="dot dot-ok mr-1"></span>gmail 11m</span>
+      <span class="px-1.5 py-0.5 paper-card border edge rounded-sm"><span class="dot dot-ok mr-1"></span>ld 4m</span>
+      <span class="px-1.5 py-0.5 paper-card border edge rounded-sm"><span class="dot dot-ok mr-1"></span>cal 22s</span>
+    </div>
+
+    <div class="ml-auto flex items-center gap-2">
+      <div class="relative">
+        <input
+          class="paper-card border edge px-3 py-1.5 w-72 text-[12px] placeholder:dim focus:outline-none focus:border-[#1F1B16] rounded-sm"
+          placeholder="search workstream · ask · person · #ticket"
+        >
+        <kbd class="absolute right-2 top-1/2 -translate-y-1/2">/</kbd>
+      </div>
+      <button class="actionable border edge px-3 py-1.5 mono text-[11px] rounded-sm">scan now</button>
+    </div>
+  </div>
+
+  <!-- keymap strip -->
+  <div class="border-t edge-soft px-6 py-1.5 flex flex-wrap items-center gap-x-5 gap-y-1 mono text-[10.5px] muted">
+    <span class="amber font-medium tracking-[0.16em]">MAP</span>
+    <span class="actionable px-1 rounded-sm">stream</span>
+    <span class="actionable px-1 rounded-sm">staff radar →</span>
+    <span class="actionable px-1 rounded-sm">brag log</span>
+    <span class="actionable px-1 rounded-sm">archive</span>
+    <span class="dim">|</span>
+    <span><kbd>j</kbd> <kbd>k</kbd> move</span>
+    <span><kbd>g</kbd><kbd>w</kbd> workstreams</span>
+    <span><kbd>g</kbd><kbd>s</kbd> staff</span>
+    <span><kbd>g</kbd><kbd>i</kbd> inbox</span>
+    <span><kbd>e</kbd> open</span>
+    <span><kbd>s</kbd> snooze</span>
+    <span><kbd>a</kbd> assign to stream</span>
+    <span><kbd>.</kbd> draft action</span>
+    <span class="ml-auto"><kbd>?</kbd> keys</span>
+  </div>
+</header>
+
+<!-- ────── gauge strip ────── -->
+<section class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 border-b edge paper-card">
+  <div class="border-r edge-soft px-4 py-3 actionable">
+    <div class="mono text-[10px] uppercase muted tracking-[0.22em]">unprocessed</div>
+    <div class="flex items-baseline gap-2 mt-0.5">
+      <div class="text-[26px] font-medium amber">14</div>
+      <div class="text-[10.5px] muted mono">▲ 3 vs 09:00</div>
+    </div>
+    <div class="h-1 paper-sink mt-2 overflow-hidden">
+      <div class="h-full amber-bg" style="width:64%"></div>
+    </div>
+  </div>
+  <div class="border-r edge-soft px-4 py-3 actionable">
+    <div class="mono text-[10px] uppercase muted tracking-[0.22em]">sla-risk</div>
+    <div class="flex items-baseline gap-2 mt-0.5">
+      <div class="text-[26px] font-medium amber">3</div>
+      <div class="text-[10.5px] muted mono">billing 14d · capacity fri · adam 2d</div>
+    </div>
+  </div>
+  <div class="border-r edge-soft px-4 py-3 actionable">
+    <div class="mono text-[10px] uppercase muted tracking-[0.22em]">workstreams</div>
+    <div class="flex items-baseline gap-2 mt-0.5">
+      <div class="text-[26px] font-medium">6</div>
+      <div class="text-[10.5px] muted mono">1 nudge · 1 deadline · 4 stable</div>
+    </div>
+  </div>
+  <div class="border-r edge-soft px-4 py-3 actionable">
+    <div class="mono text-[10px] uppercase muted tracking-[0.22em]">staff radar · EP</div>
+    <div class="flex items-baseline gap-2 mt-0.5">
+      <div class="text-[26px] font-medium">12</div>
+      <div class="text-[10.5px] muted mono">3 RFCs need you · 2 initiatives</div>
+    </div>
+  </div>
+  <div class="border-r edge-soft px-4 py-3 actionable">
+    <div class="mono text-[10px] uppercase muted tracking-[0.22em]">today's focus</div>
+    <div class="flex items-baseline gap-2 mt-0.5">
+      <div class="text-[26px] font-medium mono">2h 40m</div>
+      <div class="text-[10.5px] muted mono">2 free blocks · next mtg 15:30</div>
+    </div>
+  </div>
+  <div class="px-4 py-3 actionable">
+    <div class="mono text-[10px] uppercase muted tracking-[0.22em]">pages · 24h</div>
+    <div class="flex items-baseline gap-2 mt-0.5">
+      <div class="text-[26px] font-medium">0</div>
+      <div class="text-[10.5px] muted mono">last quiet 14h · oncall: Maya</div>
+    </div>
+  </div>
+</section>
+
+<!-- ────── main grid ────── -->
+<main class="grid grid-cols-12 min-h-[calc(100vh-184px)]">
+
+  <!-- ░░ LEFT: workstreams + staff radar (stacked) ░░ -->
+  <section class="col-span-12 lg:col-span-3 border-r edge">
+
+    <!-- your workstreams -->
+    <div class="px-4 py-3 border-b edge-soft flex items-baseline justify-between">
+      <div>
+        <h2 class="mono text-[10.5px] uppercase tracking-[0.22em] amber font-semibold">your workstreams</h2>
+        <div class="muted text-[11px] mt-0.5 mono">6 streams · 38 leaves · 4 open</div>
+      </div>
+      <button class="actionable border edge mono text-[10.5px] px-2 py-1 rounded-sm">+ new</button>
+    </div>
+
+    <ul class="text-[12.5px]">
+      <li class="actionable px-4 py-2.5 paper-card border-l-2 border-[#D88A2C]">
+        <div class="flex items-baseline justify-between">
+          <span class="font-medium">▾ credits-v1</span>
+          <span class="amber mono text-[10px] tracking-[0.18em]">NUDGE</span>
+        </div>
+        <div class="muted text-[10.5px] mono">AII-2852 · 80% · owner you</div>
+      </li>
+      <li class="px-4 py-1 muted mono text-[11px] paper-sink/40">├─ engineering · 3</li>
+      <li class="actionable px-6 py-1 flex items-center justify-between text-[12px]"><span><span class="dot dot-ok"></span> <span class="mono">pr#48199</span> <span class="muted">merged</span></span><span class="muted mono text-[10px]">[✓]</span></li>
+      <li class="actionable px-6 py-1 flex items-center justify-between text-[12px]"><span><span class="dot dot-amber"></span> <span class="mono">pr#48201</span> <span class="muted">blocker × 1</span></span><span class="amber mono text-[10px]">[!]</span></li>
+      <li class="actionable px-6 py-1 flex items-center justify-between text-[12px]"><span><span class="dot dot-ok"></span> <span class="mono">AII-3233</span> <span class="muted">done</span></span><span class="muted mono text-[10px]">[✓]</span></li>
+      <li class="px-4 py-1 muted mono text-[11px]">├─ asks · 3</li>
+      <li class="actionable px-6 py-1 flex items-center justify-between text-[12px]"><span><span class="dot dot-ok"></span> @iam scope</span><span class="muted mono text-[10px]">6d [✓]</span></li>
+      <li class="actionable px-6 py-1 flex items-center justify-between text-[12px]"><span><span class="dot dot-amber"></span> <span class="amber">@billing refund</span></span><span class="amber mono text-[10px]">14d [!]</span></li>
+      <li class="actionable px-6 py-1 flex items-center justify-between text-[12px]"><span><span class="dot dot-dim"></span> @mobile killsw</span><span class="muted mono text-[10px]">3d [·]</span></li>
+      <li class="px-4 py-1 muted mono text-[11px]">└─ signals · 3</li>
+      <li class="actionable px-6 py-1 flex items-center justify-between text-[12px]"><span><span class="dot dot-ok"></span> ld 80%</span><span class="muted mono text-[10px]">[✓]</span></li>
+      <li class="actionable px-6 py-1 flex items-center justify-between text-[12px]"><span><span class="dot dot-amber"></span> dd p99 +18%</span><span class="amber mono text-[10px]">[!]</span></li>
+      <li class="actionable px-6 py-1 flex items-center justify-between text-[12px]"><span><span class="dot dot-ok"></span> mp redeem +4.2%</span><span class="muted mono text-[10px]">[✓]</span></li>
+
+      <li class="actionable px-4 py-2 border-t edge-soft mt-1 flex items-baseline justify-between">
+        <span>▸ balance-audit-sweep <span class="muted mono text-[11px]">AII-3233</span></span>
+        <span class="muted mono text-[10px]">[✓] monitoring</span>
+      </li>
+      <li class="actionable px-4 py-2 border-t edge-soft flex items-baseline justify-between">
+        <span><span class="amber">▸ ep-capacity-q3</span> <span class="muted mono text-[11px]">staff</span></span>
+        <span class="amber mono text-[10px]">[!] FRI</span>
+      </li>
+      <li class="actionable px-4 py-2 border-t edge-soft flex items-baseline justify-between">
+        <span>▸ cross-org-iam-rfc <span class="muted mono text-[11px]">staff</span></span>
+        <span class="muted mono text-[10px]">[·] 2 reviewers</span>
+      </li>
+      <li class="actionable px-4 py-2 border-t edge-soft flex items-baseline justify-between">
+        <span>▸ mentor.maya</span>
+        <span class="muted mono text-[10px]">[✓] thu 11:00</span>
+      </li>
+      <li class="actionable px-4 py-2 border-t edge-soft flex items-baseline justify-between muted">
+        <span>▸ ⚪ inbox.unassigned</span>
+        <span class="mono text-[10px]">[·] 6</span>
+      </li>
+    </ul>
+
+    <!-- staff radar -->
+    <div class="border-t edge mt-2 px-4 py-3 paper-sink/60 flex items-baseline justify-between">
+      <div>
+        <h2 class="mono text-[10.5px] uppercase tracking-[0.22em] amber font-semibold">staff radar · external platform</h2>
+        <div class="muted text-[11px] mt-0.5 mono">cross-team work you should track</div>
+      </div>
+      <span class="muted mono text-[10.5px]">12 active · 3 need you</span>
+    </div>
+
+    <ul class="text-[12.5px]">
+      <li class="actionable px-4 py-2 border-b edge-soft flex items-baseline justify-between">
+        <div>
+          <div><span class="dot dot-amber"></span> Latency-tax Q3 <span class="muted mono text-[11px]">@platform</span></div>
+          <div class="muted mono text-[10.5px]">blocked on auth scope · 4d</div>
+        </div>
+        <span class="amber mono text-[10px]">[!] you nudged?</span>
+      </li>
+      <li class="actionable px-4 py-2 border-b edge-soft flex items-baseline justify-between">
+        <div>
+          <div><span class="dot dot-amber"></span> RFC: org-wide IAM <span class="muted mono text-[11px]">@scicero</span></div>
+          <div class="muted mono text-[10.5px]">"thoughts?" · 4h ago · in #ep-platform</div>
+        </div>
+        <span class="amber mono text-[10px]">[!] weigh in</span>
+      </li>
+      <li class="actionable px-4 py-2 border-b edge-soft flex items-baseline justify-between">
+        <div>
+          <div><span class="dot dot-ok"></span> Event bus v3 cutover <span class="muted mono text-[11px]">@events</span></div>
+          <div class="muted mono text-[10.5px]">on track · cut 2026-07-08</div>
+        </div>
+        <span class="muted mono text-[10px]">[·] watching</span>
+      </li>
+      <li class="actionable px-4 py-2 border-b edge-soft flex items-baseline justify-between">
+        <div>
+          <div><span class="dot dot-ok"></span> Public API v4 standards <span class="muted mono text-[11px]">@api</span></div>
+          <div class="muted mono text-[10.5px]">design phase · 1 your finding open</div>
+        </div>
+        <span class="muted mono text-[10px]">[·] watching</span>
+      </li>
+      <li class="actionable px-4 py-2 border-b edge-soft flex items-baseline justify-between">
+        <div>
+          <div><span class="dot dot-amber"></span> RFC: cost SLO playbook <span class="muted mono text-[11px]">@finops</span></div>
+          <div class="muted mono text-[10.5px]">draft · review window closes wed</div>
+        </div>
+        <span class="amber mono text-[10px]">[!] read by wed</span>
+      </li>
+      <li class="actionable px-4 py-2 flex items-baseline justify-between muted">
+        <div>
+          <div>↧ 7 more EP initiatives</div>
+          <div class="text-[10.5px] mono">expand</div>
+        </div>
+        <span class="mono text-[10px]">[·]</span>
+      </li>
+    </ul>
+  </section>
+
+  <!-- ░░ CENTER: detail panel ░░ -->
+  <section class="col-span-12 lg:col-span-6 border-r edge">
+
+    <!-- header -->
+    <div class="px-6 py-4 border-b edge-soft">
+      <div class="flex items-baseline gap-3 flex-wrap">
+        <span class="amber mono text-[10.5px] tracking-[0.22em] font-semibold">WORKSTREAM</span>
+        <h1 class="text-[26px] font-medium tracking-tight">credits-v1</h1>
+        <span class="mono text-[12px] muted">AII-2852</span>
+        <span class="amber-bg mono text-[10.5px] px-2 py-0.5 rounded-sm tracking-[0.16em] font-semibold">NEEDS NUDGE</span>
+      </div>
+      <div class="text-[12px] muted mt-1 mono flex flex-wrap gap-x-4 gap-y-1">
+        <span>owner · you</span>
+        <span>sponsor · @scicero</span>
+        <span>started 2026-03-12</span>
+        <span>target 2026-07-15 <span class="amber">(T-28d)</span></span>
+        <span>rollout 80%</span>
+      </div>
+
+      <!-- tabs (with active affordance) -->
+      <div class="flex items-center gap-1 text-[11px] mono uppercase tracking-[0.18em] mt-3">
+        <button class="amber-bg px-2.5 py-1 rounded-sm">overview</button>
+        <button class="actionable border edge px-2.5 py-1 rounded-sm">graph</button>
+        <button class="actionable border edge px-2.5 py-1 rounded-sm">timeline</button>
+        <button class="actionable border edge px-2.5 py-1 rounded-sm">obsidian ↗</button>
+      </div>
+    </div>
+
+    <!-- meta gauges -->
+    <div class="grid grid-cols-2 md:grid-cols-4 border-b edge-soft">
+      <div class="px-4 py-3 border-r edge-soft">
+        <div class="mono text-[10px] uppercase muted">prs open</div>
+        <div class="flex items-baseline gap-2 mt-0.5">
+          <div class="text-[18px] mono font-medium">2</div>
+          <div class="text-[10.5px] amber mono">1 blocker</div>
+        </div>
+      </div>
+      <div class="px-4 py-3 border-r edge-soft">
+        <div class="mono text-[10px] uppercase muted">cross-team asks</div>
+        <div class="flex items-baseline gap-2 mt-0.5">
+          <div class="text-[18px] mono font-medium">3</div>
+          <div class="text-[10.5px] amber mono">1 stale 14d</div>
+        </div>
+      </div>
+      <div class="px-4 py-3 border-r edge-soft">
+        <div class="mono text-[10px] uppercase muted">p99 30d</div>
+        <div class="flex items-baseline gap-2 mt-0.5">
+          <div class="text-[18px] mono font-medium amber">↑ 18%</div>
+          <div class="text-[10.5px] muted mono">unclear</div>
+        </div>
+      </div>
+      <div class="px-4 py-3">
+        <div class="mono text-[10px] uppercase muted">Δ rollout</div>
+        <div class="mt-1.5 flex items-center gap-2">
+          <div class="text-[14px] mono">60→80%</div>
+          <div class="flex-1 h-1.5 paper-sink overflow-hidden">
+            <div class="h-full amber-bg" style="width:80%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- drafted next actions -->
+    <div class="px-6 py-4 paper-card border-b edge-soft">
+      <div class="flex items-baseline justify-between mb-2">
+        <div class="mono text-[10.5px] uppercase tracking-[0.22em] amber font-semibold">
+          drafted next actions <span class="muted font-normal">· claude · 14:31 · 2 of 4 selected</span>
+        </div>
+        <div class="flex items-center gap-1.5 text-[11px] mono uppercase">
+          <button class="amber-bg px-2.5 py-1 rounded-sm">accept</button>
+          <button class="actionable border edge px-2.5 py-1 rounded-sm">regenerate</button>
+          <button class="actionable border edge px-2.5 py-1 rounded-sm">edit</button>
+        </div>
+      </div>
+      <ol class="space-y-1.5 mono text-[12.5px]">
+        <li class="flex gap-3 items-baseline actionable -mx-2 px-2 py-1 rounded-sm">
+          <input type="checkbox" checked class="mt-1">
+          <span class="amber w-6 font-medium">01</span>
+          <span>DM @billing lead — 1-line escalation on the 14d refund-hook ask.</span>
+          <span class="ml-auto muted text-[10px]">≈3m</span>
+        </li>
+        <li class="flex gap-3 items-baseline actionable -mx-2 px-2 py-1 rounded-sm">
+          <input type="checkbox" checked class="mt-1">
+          <span class="amber w-6 font-medium">02</span>
+          <span>Reply to Adam's blocker on PR <span class="amber">#48201</span> — accept or push back.</span>
+          <span class="ml-auto muted text-[10px]">≈12m</span>
+        </li>
+        <li class="flex gap-3 items-baseline actionable -mx-2 px-2 py-1 rounded-sm muted">
+          <input type="checkbox" class="mt-1">
+          <span class="w-6 font-medium">03</span>
+          <span>Verdict on p99 +18% — open DD board, decide rollback or hold.</span>
+          <span class="ml-auto text-[10px]">≈15m</span>
+        </li>
+        <li class="flex gap-3 items-baseline actionable -mx-2 px-2 py-1 rounded-sm muted">
+          <input type="checkbox" class="mt-1">
+          <span class="w-6 font-medium">04</span>
+          <span>Outline EP capacity model § 1.</span>
+          <span class="ml-auto text-[10px]">60m focus</span>
+        </li>
+      </ol>
+    </div>
+
+    <!-- root → leaf SVG graph -->
+    <div class="px-6 py-4 border-b edge-soft">
+      <div class="flex items-center justify-between mb-3">
+        <div class="mono text-[10.5px] uppercase muted tracking-[0.22em]">root → leaf · workstream graph</div>
+        <div class="mono text-[10.5px] muted">drag · scroll · click to drill <kbd>e</kbd></div>
+      </div>
+      <svg viewBox="0 0 760 220" class="w-full h-[220px]" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+            <path d="M0,0 L10,5 L0,10 z" fill="#A89F8C"/>
+          </marker>
+        </defs>
+        <g stroke="#A89F8C" stroke-width="1" fill="none">
+          <path d="M120,110 C 220,110 220,40 320,40"  marker-end="url(#arr)"/>
+          <path d="M120,110 C 220,110 220,90 320,90"  marker-end="url(#arr)" stroke="#D88A2C"/>
+          <path d="M120,110 C 220,110 220,140 320,140" marker-end="url(#arr)"/>
+          <path d="M120,110 C 220,110 220,190 320,190" marker-end="url(#arr)"/>
+          <path d="M340,40 C 460,40 460,30 580,30"/>
+          <path d="M340,90 C 460,90 460,80 580,80" stroke="#D88A2C"/>
+          <path d="M340,140 C 460,140 460,135 580,135" stroke="#D88A2C" stroke-dasharray="3 3"/>
+          <path d="M340,190 C 460,190 460,185 580,185"/>
+        </g>
+        <!-- root -->
+        <g>
+          <rect x="40" y="90" width="160" height="40" fill="#FBF8F1" stroke="#D88A2C" stroke-width="1.5"/>
+          <text x="120" y="106" text-anchor="middle" fill="#B26A12" font-family="JetBrains Mono" font-size="12" font-weight="600">credits-v1</text>
+          <text x="120" y="120" text-anchor="middle" fill="#756E60" font-family="JetBrains Mono" font-size="9">AII-2852 · 80%</text>
+        </g>
+        <!-- branches -->
+        <g font-family="JetBrains Mono" font-size="11">
+          <rect x="220" y="20" width="120" height="36" fill="#FBF8F1" stroke="#C8C3B5"/>
+          <text x="280" y="34" text-anchor="middle" fill="#1F1B16">engineering</text>
+          <text x="280" y="48" text-anchor="middle" fill="#756E60" font-size="9">3 leaves</text>
+
+          <rect x="220" y="70" width="120" height="36" fill="#FBF8F1" stroke="#D88A2C"/>
+          <text x="280" y="84" text-anchor="middle" fill="#B26A12" font-weight="600">cross-team asks</text>
+          <text x="280" y="98" text-anchor="middle" fill="#756E60" font-size="9">3 · 1 stale</text>
+
+          <rect x="220" y="120" width="120" height="36" fill="#FBF8F1" stroke="#C8C3B5"/>
+          <text x="280" y="134" text-anchor="middle" fill="#1F1B16">signals</text>
+          <text x="280" y="148" text-anchor="middle" fill="#756E60" font-size="9">3 sources</text>
+
+          <rect x="220" y="170" width="120" height="36" fill="#FBF8F1" stroke="#C8C3B5"/>
+          <text x="280" y="184" text-anchor="middle" fill="#1F1B16">docs</text>
+          <text x="280" y="198" text-anchor="middle" fill="#756E60" font-size="9">4 in vault</text>
+        </g>
+        <!-- leaves -->
+        <g font-family="JetBrains Mono" font-size="10">
+          <rect x="580" y="14" width="160" height="32" fill="#FBF8F1" stroke="#C8C3B5"/>
+          <text x="660" y="28" text-anchor="middle" fill="#1F1B16">pr #48201</text>
+          <text x="660" y="40" text-anchor="middle" fill="#B26A12" font-size="9">blocker × 1</text>
+
+          <rect x="580" y="64" width="160" height="32" fill="#F2DBB5" stroke="#D88A2C" stroke-width="1.5"/>
+          <text x="660" y="78" text-anchor="middle" fill="#6E3F00" font-weight="600">@billing · refund hook</text>
+          <text x="660" y="90" text-anchor="middle" fill="#756E60" font-size="9">asked 14d · no reply</text>
+
+          <rect x="580" y="118" width="160" height="32" fill="#FBF8F1" stroke="#D88A2C"/>
+          <text x="660" y="132" text-anchor="middle" fill="#1F1B16">dd · p99 +18%</text>
+          <text x="660" y="144" text-anchor="middle" fill="#756E60" font-size="9">watching</text>
+
+          <rect x="580" y="170" width="160" height="32" fill="#FBF8F1" stroke="#C8C3B5"/>
+          <text x="660" y="184" text-anchor="middle" fill="#1F1B16">obsidian/credits-v1.md</text>
+          <text x="660" y="196" text-anchor="middle" fill="#756E60" font-size="9">synced 12s</text>
+        </g>
+      </svg>
+    </div>
+
+    <!-- two tables -->
+    <div class="grid grid-cols-2">
+      <div class="border-r edge-soft p-5">
+        <div class="mono text-[10.5px] uppercase muted tracking-[0.22em] mb-2">cross-team asks</div>
+        <table class="w-full text-[12px] mono">
+          <tbody class="divide-y edge-soft">
+            <tr class="actionable">
+              <td class="py-2 pr-2"><span class="dot dot-ok"></span></td>
+              <td class="py-2 pr-2">@iam</td>
+              <td class="py-2 muted">scope check</td>
+              <td class="py-2 text-right muted">closed 6d</td>
+            </tr>
+            <tr class="actionable paper-card">
+              <td class="py-2 pr-2"><span class="dot dot-amber"></span></td>
+              <td class="py-2 pr-2 amber">@billing</td>
+              <td class="py-2">refund hook</td>
+              <td class="py-2 text-right amber font-medium">14d</td>
+            </tr>
+            <tr class="actionable">
+              <td class="py-2 pr-2"><span class="dot dot-dim"></span></td>
+              <td class="py-2 pr-2">@mobile</td>
+              <td class="py-2 muted">kill switch · drafted</td>
+              <td class="py-2 text-right muted">3d</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="p-5">
+        <div class="mono text-[10.5px] uppercase muted tracking-[0.22em] mb-2">signals</div>
+        <table class="w-full text-[12px] mono">
+          <tbody class="divide-y edge-soft">
+            <tr class="actionable"><td class="py-2 pr-2"><span class="dot dot-ok"></span></td><td class="py-2">ld · credits-v1-rollout</td><td class="py-2 text-right muted">80% clean</td></tr>
+            <tr class="actionable"><td class="py-2 pr-2"><span class="dot dot-amber"></span></td><td class="py-2">dd · gocredits.balance.p99</td><td class="py-2 text-right amber">+18% w/w</td></tr>
+            <tr class="actionable"><td class="py-2 pr-2"><span class="dot dot-ok"></span></td><td class="py-2">mp · redemption</td><td class="py-2 text-right muted">+4.2%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ░░ RIGHT: stream + calendar (stacked) ░░ -->
+  <aside class="col-span-12 lg:col-span-3">
+
+    <!-- stream -->
+    <div class="px-4 py-3 border-b edge-soft flex items-baseline justify-between">
+      <h2 class="mono text-[10.5px] uppercase tracking-[0.22em] amber font-semibold">stream · inbound</h2>
+      <div class="flex items-center gap-2 mono text-[10.5px]">
+        <span class="amber font-medium">all</span>
+        <span class="muted actionable px-1 rounded-sm">needs me</span>
+        <span class="muted actionable px-1 rounded-sm">waiting</span>
+      </div>
+    </div>
+
+    <ul class="text-[12px] divide-y edge-soft">
+
+      <li class="actionable px-4 py-2.5 paper-card border-l-2 border-[#D88A2C]">
+        <div class="flex items-baseline justify-between">
+          <span class="amber mono text-[10.5px] font-semibold">▲ 09:42 · GH</span>
+          <span class="muted mono text-[10px]">→ credits-v1</span>
+        </div>
+        <div class="font-medium mt-0.5">PR #48201 — Adam, 1 blocker</div>
+        <div class="muted text-[11.5px]">"audit sweep relies on a UTC noon window…"</div>
+        <div class="mt-1.5 flex flex-wrap gap-1 text-[10.5px] mono">
+          <button class="amber-bg px-1.5 py-0.5 rounded-sm">draft reply <kbd class="ml-1">.</kbd></button>
+          <button class="actionable border edge px-1.5 py-0.5 rounded-sm">open</button>
+          <button class="actionable border edge px-1.5 py-0.5 rounded-sm">snooze</button>
+        </div>
+      </li>
+
+      <li class="actionable px-4 py-2.5 paper-card border-l-2 border-[#D88A2C]">
+        <div class="flex items-baseline justify-between">
+          <span class="amber mono text-[10.5px] font-semibold">▲ 09:30 · SLACK</span>
+          <span class="muted mono text-[10px]">→ staff radar</span>
+        </div>
+        <div class="font-medium mt-0.5">@scicero · #ep-platform</div>
+        <div class="muted text-[11.5px]">"thoughts on the cross-org IAM RFC?"</div>
+      </li>
+
+      <li class="actionable px-4 py-2.5">
+        <div class="flex items-baseline justify-between">
+          <span class="mono text-[10.5px] muted font-medium">○ 09:15 · JIRA</span>
+          <span class="muted mono text-[10px]">→ credits-v1</span>
+        </div>
+        <div class="font-medium mt-0.5">AII-3260 reassigned to you</div>
+        <div class="muted text-[11.5px]">balance drift for refunded credits</div>
+      </li>
+
+      <li class="actionable px-4 py-2.5">
+        <div class="flex items-baseline justify-between">
+          <span class="mono text-[10.5px] muted font-medium">○ 08:55 · ZOOM</span>
+          <span class="muted mono text-[10px]">→ q3-planning</span>
+        </div>
+        <div class="font-medium mt-0.5">EP weekly · 2 todos extracted</div>
+        <div class="muted text-[11.5px]">you · draft capacity model by Fri</div>
+      </li>
+
+      <li class="actionable px-4 py-2.5">
+        <div class="flex items-baseline justify-between">
+          <span class="mono text-[10.5px] muted font-medium">○ 08:30 · LD</span>
+          <span class="muted mono text-[10px]">→ credits-v1</span>
+        </div>
+        <div class="font-medium mt-0.5">credits-v1-rollout · 60 → 80%</div>
+        <div class="muted text-[11.5px]">no anomaly correlation in DD</div>
+      </li>
+
+      <li class="actionable px-4 py-2.5 paper-card border-l-2 border-[#D88A2C]">
+        <div class="flex items-baseline justify-between">
+          <span class="amber mono text-[10.5px] font-semibold">▲ ystr · GMAIL</span>
+          <span class="muted mono text-[10px]">→ inbox</span>
+        </div>
+        <div class="font-medium mt-0.5">legal@example.com · DPA vendor X</div>
+        <div class="muted text-[11.5px]">sign by Wed</div>
+      </li>
+
+      <!-- error state for a single source -->
+      <li class="px-4 py-2.5 amber-soft">
+        <div class="flex items-baseline justify-between">
+          <span class="amber mono text-[10.5px] font-semibold">⚠ ZOOM transcript</span>
+          <span class="muted mono text-[10px]">retry 32s</span>
+        </div>
+        <div class="muted text-[11.5px]">meet.example.com/abc-123 — queued</div>
+      </li>
+
+      <li class="px-4 py-3 text-center muted mono text-[10.5px] tracking-[0.18em] uppercase">— stream end · 06:00 cutoff —</li>
+    </ul>
+
+    <!-- today calendar tile -->
+    <div class="border-t edge px-4 py-3 paper-sink/50">
+      <div class="flex items-baseline justify-between">
+        <h2 class="mono text-[10.5px] uppercase tracking-[0.22em] amber font-semibold">today · calendar</h2>
+        <span class="muted mono text-[10.5px]">2h 40m free · before 18:00</span>
+      </div>
+      <ul class="mt-2 text-[12px] divide-y edge-soft">
+        <li class="py-1.5 flex items-baseline justify-between">
+          <span class="mono text-[10.5px] muted w-14">14:00</span>
+          <span class="flex-1">▎focus block — credits PR replies</span>
+          <span class="muted mono text-[10.5px]">in 28m</span>
+        </li>
+        <li class="py-1.5 flex items-baseline justify-between actionable">
+          <span class="mono text-[10.5px] muted w-14">15:30</span>
+          <span class="flex-1">EP / Platform 1:1 <span class="muted">@scicero</span></span>
+          <span class="amber mono text-[10.5px]">next</span>
+        </li>
+        <li class="py-1.5 flex items-baseline justify-between actionable">
+          <span class="mono text-[10.5px] muted w-14">16:30</span>
+          <span class="flex-1">▎focus block — capacity model</span>
+          <span class="muted mono text-[10.5px]">60m</span>
+        </li>
+        <li class="py-1.5 flex items-baseline justify-between actionable">
+          <span class="mono text-[10.5px] muted w-14">17:30</span>
+          <span class="flex-1">IAM RFC walkthrough <span class="muted">opt.</span></span>
+          <span class="muted mono text-[10.5px]">30m</span>
+        </li>
+      </ul>
+    </div>
+  </aside>
+</main>
+
+<!-- ────── footer ────── -->
+<footer class="border-t edge paper-card">
+  <div class="flex flex-wrap items-center gap-x-6 gap-y-1 px-6 py-2 mono text-[10.5px] muted uppercase tracking-[0.22em]">
+    <span><span class="dot dot-ok"></span> obsidian · ~/cockpit-vault · synced 12s</span>
+    <span>scheduler · next scan 18:00</span>
+    <span>brag log · 3 entries today</span>
+    <span>cache · 38 leaves · 247 events</span>
+    <span class="ml-auto">
+      <kbd>g</kbd><kbd>w</kbd> streams · <kbd>g</kbd><kbd>s</kbd> staff · <kbd>g</kbd><kbd>i</kbd> inbox · <kbd>?</kbd> all keys
+    </span>
+  </div>
+</footer>
+
+</body>
+</html>

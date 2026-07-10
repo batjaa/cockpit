@@ -1,0 +1,403 @@
+{{define "content"}}
+<div class="flex items-start justify-between gap-4 mb-6">
+  <div>
+    <h1 class="text-2xl font-semibold">Pending reviews</h1>
+    <div class="text-xs text-zinc-500 mono mt-1 flex items-center gap-1.5 flex-wrap">
+      <span>{{len .Reviews}} pending</span>
+      {{with .Stats}}
+      <span class="text-zinc-300">·</span>
+      <span title="all-time">🏆 {{.PRsReviewed}} PRs reviewed · {{.ReviewsPosted}} posted · {{.CommentsPosted}} comments shipped</span>
+      {{end}}
+      {{with .LastRun}}
+      <span class="text-zinc-300">·</span>
+      <span>last run {{.Age}}</span>
+      {{if eq .Status "success"}}<span class="text-emerald-700">✓ {{.ReviewCount}} reviewed</span>{{end}}
+      {{if eq .Status "partial"}}<span class="text-amber-700">⚠ partial — {{.Error}}</span>{{end}}
+      {{if eq .Status "error"}}<span class="text-red-700">✗ {{.Error}}</span>{{end}}
+      {{if eq .Status "running"}}<span class="text-zinc-700">running…</span>{{end}}
+      {{end}}
+      {{if .NextRun}}
+      <span class="text-zinc-300">·</span>
+      <span>next run {{.NextRun}}</span>
+      {{end}}
+      {{if gt .StaleSessions 0}}
+      <span class="text-zinc-300">·</span>
+      <a href="/sessions" class="text-amber-700 hover:underline">🕳 {{.StaleSessions}} stale session{{if ne .StaleSessions 1}}s{{end}} →</a>
+      {{end}}
+    </div>
+  </div>
+  <div class="flex items-center gap-2 shrink-0">
+    <form id="manual-review-form" class="flex items-center gap-2">
+      <input id="manual-url" type="url" required
+             placeholder="https://github.com/owner/repo/pull/123"
+             class="text-sm border border-zinc-300 rounded px-3 py-1.5 w-72 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-500">
+      <button type="submit" id="manual-review-btn"
+              class="mono text-xs px-3 py-2 rounded border border-zinc-300 bg-white hover:bg-zinc-100 disabled:opacity-40">
+        Review
+      </button>
+    </form>
+    <button id="run-now"
+            {{if .SearchEmpty}}disabled title="set config.search in ~/.cockpit/config.json"{{end}}
+            {{if .Running}}data-running="true"{{end}}
+            class="mono text-xs px-3 py-2 rounded border border-zinc-300 bg-white hover:bg-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed">
+      {{if .Running}}Running…{{else}}Run now{{end}}
+    </button>
+    <button id="sweep-now"
+            title="Dismiss pending reviews for PRs that are merged, closed, or you've already approved on GitHub"
+            class="mono text-xs px-3 py-2 rounded border border-zinc-300 bg-white hover:bg-zinc-100 disabled:opacity-40">
+      Clear done
+    </button>
+  </div>
+</div>
+
+<section id="run-progress" class="hidden mb-8">
+  <h2 class="text-sm font-semibold text-zinc-700 mb-3">Current run</h2>
+  <div id="run-progress-items" class="bg-white rounded-lg border border-zinc-200 divide-y divide-zinc-100"></div>
+</section>
+
+{{if .Reviews}}
+<div class="space-y-3">
+  {{range .Reviews}}
+  <div class="relative bg-white rounded-lg border border-zinc-200 hover:border-zinc-400 transition px-5 py-4" data-card="{{.ReviewID}}">
+    <div class="flex items-start justify-between gap-4">
+      <div class="min-w-0 flex-1">
+        <div class="text-xs text-zinc-500 mono">
+          <a href="{{.URL}}" target="_blank" rel="noopener" class="hover:text-zinc-900 hover:underline">{{.Owner}}/{{.Repo}} #{{.Number}}</a>
+          {{if eq .PRState "MERGED"}}<span class="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded ml-1">merged</span>{{end}}
+          {{if eq .PRState "CLOSED"}}<span class="bg-red-100 text-red-700 px-1.5 py-0.5 rounded ml-1">closed</span>{{end}}
+        </div>
+        <a href="/pr/{{.ReviewID}}" class="block">
+          <div class="font-medium text-zinc-900 truncate mt-0.5">{{.Title}}</div>
+          <div class="text-sm text-zinc-500 mt-1">
+            {{.Author}}
+            {{if .OpenedAge}}
+            <span class="text-zinc-300">·</span>
+            opened {{.OpenedAge}}
+            {{end}}
+            {{if .UpdatedAge}}
+            <span class="text-zinc-300">·</span>
+            updated {{.UpdatedAge}}
+            {{end}}
+            {{if and (not .OpenedAge) (not .UpdatedAge)}}
+            <span class="text-zinc-300">·</span>
+            reviewed {{.Age}}
+            {{end}}
+          </div>
+        </a>
+      </div>
+      <div class="flex flex-col items-end gap-2 shrink-0">
+        <div class="flex items-center gap-1.5 text-xs mono">
+          {{range .Groups}}
+          <div class="relative group/sev">
+            <span class="cursor-default px-2 py-1 rounded
+              {{if eq .Key "blocker"}}bg-red-100 text-red-700{{else if eq .Key "major"}}bg-orange-100 text-orange-700{{else if eq .Key "minor"}}bg-yellow-100 text-yellow-800{{else}}bg-zinc-100 text-zinc-600{{end}}">{{.Icon}} {{len .Comments}}</span>
+            <div class="absolute right-0 bottom-full z-20 hidden group-hover/sev:block pb-1 w-[34rem] max-w-[90vw]">
+              <div class="bg-white border border-zinc-300 rounded-lg shadow-xl p-3 text-left">
+                <div class="text-xs text-zinc-500 uppercase tracking-wide mb-1.5">{{.Label}} — check to include</div>
+                {{range .Comments}}
+                <label class="flex items-start gap-2 text-xs cursor-pointer py-1.5 hover:bg-zinc-50 rounded px-1">
+                  <input type="checkbox" class="comment-toggle accent-zinc-900 mt-0.5 shrink-0"
+                         data-id="{{.ID}}" {{if .Selected}}checked{{end}}>
+                  <span class="min-w-0 flex-1">
+                    <span class="block mono truncate
+                      {{if eq .Severity "blocker"}}text-red-600{{else if eq .Severity "major"}}text-orange-600{{else if eq .Severity "minor"}}text-yellow-700{{else}}text-zinc-400{{end}}"
+                      title="{{.Path}}:{{.Line}}">{{.PathShort}}:{{.Line}}</span>
+                    <span class="block text-zinc-700 leading-snug line-clamp-3 mt-0.5">{{.Excerpt}}</span>
+                  </span>
+                </label>
+                {{end}}
+              </div>
+            </div>
+          </div>
+          {{end}}
+          {{if not .Groups}}<span class="text-zinc-400">no findings</span>{{end}}
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="dismiss-cta mono text-xs px-2.5 py-1 rounded border border-zinc-200 text-zinc-500 hover:text-zinc-900 hover:border-zinc-400 disabled:opacity-40"
+                  data-id="{{.ReviewID}}" data-pr="#{{.Number}}">
+            Dismiss
+          </button>
+          <div class="relative group/approve">
+            <button class="mono text-xs px-2.5 py-1 rounded border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100">
+              Approve
+            </button>
+            <div class="hidden group-hover/approve:block absolute right-0 bottom-full w-96 z-10 pb-1">
+              <div class="bg-white border border-zinc-300 rounded-lg shadow-lg p-3">
+                <div class="text-xs text-zinc-500 uppercase tracking-wide mb-1.5">Summary — posted as the review body</div>
+                <textarea class="approve-summary w-full text-sm text-zinc-900 leading-snug border border-zinc-200 rounded p-2 resize-none focus:outline-none focus:border-zinc-500"
+                          rows="4" data-id="{{.ReviewID}}">{{.Summary}}</textarea>
+                <div class="flex items-center justify-between mt-2">
+                  <span class="text-xs text-zinc-500"><span class="selected-count" data-card="{{.ReviewID}}">{{.Selected}}</span> comment(s) selected</span>
+                  <button class="approve-confirm mono text-xs px-3 py-1.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40"
+                          data-id="{{.ReviewID}}" data-pr="#{{.Number}}">
+                    Approve ✓
+                  </button>
+                </div>
+                <div class="approve-error text-xs text-red-600 mt-1 hidden" data-card="{{.ReviewID}}"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {{end}}
+</div>
+{{else}}
+<div class="bg-white rounded-lg border border-zinc-200 p-12 text-center text-zinc-500">
+  <div class="text-sm">No pending reviews yet.</div>
+  <div class="text-xs mt-3 mono text-zinc-400">cockpit --pr &lt;url&gt;   or   cockpit --run-once   or click Run now</div>
+</div>
+{{end}}
+
+<script>
+(function() {
+  const btn = document.getElementById('run-now');
+  const form = document.getElementById('manual-review-form');
+
+  // If the server marked us as already running, just poll.
+  if (btn && btn.dataset.running === 'true') {
+    poll();
+  }
+
+  if (btn && !btn.disabled) {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = 'Running…';
+      try {
+        const res = await fetch('/run-now', {method: 'POST'});
+        if (!res.ok) {
+          btn.textContent = 'Run now';
+          btn.disabled = false;
+          toast('Run failed: ' + (await res.text()), 'error');
+          return;
+        }
+        const data = await res.json().catch(() => ({status: 'started'}));
+        if (data.status === 'duplicate') {
+          toast('A run is already in progress — showing its progress.', 'info');
+        } else if (data.status === 'queued') {
+          const n = data.ahead || 0;
+          toast(`Run queued — ${n} ahead. It'll start automatically.`, 'info');
+        }
+        poll();
+      } catch (err) {
+        btn.textContent = 'Run now';
+        btn.disabled = false;
+        toast('Run failed: ' + err, 'error');
+      }
+    });
+  }
+
+  const sweepBtn = document.getElementById('sweep-now');
+  if (sweepBtn) {
+    sweepBtn.addEventListener('click', async () => {
+      if (sweepBtn.disabled) return;
+      sweepBtn.disabled = true;
+      const label = sweepBtn.textContent;
+      sweepBtn.textContent = 'Clearing…';
+      try {
+        const res = await fetch('/reconcile', {method: 'POST'});
+        if (!res.ok) {
+          sweepBtn.textContent = label; sweepBtn.disabled = false;
+          toast('Clear failed: ' + (await res.text()), 'error');
+          return;
+        }
+        const data = await res.json().catch(() => ({cleared: 0}));
+        if (data.cleared > 0) {
+          toast(`Cleared ${data.cleared} done PR${data.cleared === 1 ? '' : 's'} from the list.`, 'success');
+          setTimeout(() => location.reload(), 900);
+        } else {
+          sweepBtn.textContent = label; sweepBtn.disabled = false;
+          toast('Nothing to clear — all pending reviews are still open.', 'info');
+        }
+      } catch (err) {
+        sweepBtn.textContent = label; sweepBtn.disabled = false;
+        toast('Clear failed: ' + err, 'error');
+      }
+    });
+  }
+
+  if (form) {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = document.getElementById('manual-url');
+      const reviewBtn = document.getElementById('manual-review-btn');
+      const url = input.value.trim();
+      if (!url) return;
+      reviewBtn.disabled = true;
+      try {
+        const res = await fetch('/review', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({url})
+        });
+        if (!res.ok) {
+          reviewBtn.disabled = false;
+          toast('Review failed: ' + (await res.text()), 'error');
+          return;
+        }
+        const data = await res.json().catch(() => ({status: 'started'}));
+        input.value = '';
+        if (data.status === 'queued') {
+          const n = data.ahead || 0;
+          toast(`Review queued — ${n} run${n === 1 ? '' : 's'} ahead. It'll start automatically.`, 'info');
+        } else if (data.status === 'duplicate') {
+          toast('That PR is already queued or being reviewed.', 'info');
+        } else {
+          toast('Review started — findings will appear here shortly.', 'success');
+        }
+        poll();
+      } catch (err) {
+        reviewBtn.disabled = false;
+        toast('Review failed: ' + err, 'error');
+      }
+    });
+  }
+
+  function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+  }
+
+  function badge(it) {
+    switch (it.state) {
+      case 'queued':
+        return '<span class="mono text-xs bg-zinc-100 text-zinc-500 px-2 py-1 rounded">queued</span>';
+      case 'reviewing': {
+        const secs = it.started_at ? Math.max(0, Math.round((Date.now() - new Date(it.started_at)) / 1000)) : 0;
+        const mins = Math.floor(secs / 60);
+        const t = mins > 0 ? `${mins}m${secs % 60}s` : `${secs}s`;
+        return `<span class="mono text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded animate-pulse">reviewing… ${t}</span>`;
+      }
+      case 'done':
+        return `<span class="mono text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded">✓ ${it.findings} finding${it.findings === 1 ? '' : 's'}</span>`;
+      case 'skipped':
+        return '<span class="mono text-xs bg-zinc-100 text-zinc-400 px-2 py-1 rounded">unchanged</span>';
+      case 'failed':
+        return '<span class="mono text-xs bg-red-100 text-red-700 px-2 py-1 rounded">failed</span>';
+      default:
+        return '';
+    }
+  }
+
+  function renderProgress(items) {
+    const section = document.getElementById('run-progress');
+    const list = document.getElementById('run-progress-items');
+    if (!items || items.length === 0) {
+      // gh discovery still in flight — show the section with a placeholder
+      section.classList.remove('hidden');
+      list.innerHTML = '<div class="px-4 py-3 text-sm text-zinc-500">Discovering PRs…</div>';
+      return;
+    }
+    section.classList.remove('hidden');
+    list.innerHTML = items.map(it => `
+      <div class="px-4 py-2.5 flex items-center justify-between gap-3">
+        <div class="min-w-0 flex-1">
+          ${it.owner ? `<span class="mono text-xs text-zinc-500">${esc(it.owner)}/${esc(it.repo)} #${it.number}</span>` : ''}
+          ${it.title ? `<span class="text-sm text-zinc-900 ${it.owner ? 'ml-1.5' : ''}">${esc(it.title)}</span>` : ''}
+        </div>
+        <div class="shrink-0">${badge(it)}</div>
+      </div>`).join('');
+  }
+
+  async function poll() {
+    while (true) {
+      try {
+        const res = await fetch('/run-status');
+        const data = await res.json();
+        if (!data.running) {
+          location.reload();
+          return;
+        }
+        renderProgress(data.items);
+      } catch (err) {
+        // Network blip; keep trying.
+      }
+      await new Promise(r => setTimeout(r, 2000));
+    }
+  }
+
+  // Comment checkboxes inside the hover-expanded panel: persist the
+  // selection and keep the popover's selected-count in sync.
+  document.querySelectorAll('.comment-toggle').forEach(cb => {
+    cb.addEventListener('change', async () => {
+      const res = await fetch(`/comments/${cb.dataset.id}`, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({selected: cb.checked})
+      });
+      if (!res.ok) {
+        cb.checked = !cb.checked;
+        toast('Failed to save selection: ' + (await res.text()), 'error');
+        return;
+      }
+      const card = cb.closest('[data-card]');
+      const count = card.querySelectorAll('.comment-toggle:checked').length;
+      const counter = card.querySelector('.selected-count');
+      if (counter) counter.textContent = count;
+    });
+  });
+
+  // Approve popover: editable summary + confirm. The summary saves
+  // first so the submit (which reads from the DB) posts the edited text.
+  document.querySelectorAll('.approve-confirm').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const card = btn.closest('[data-card]');
+      const ta = card.querySelector('.approve-summary');
+      const errBox = card.querySelector('.approve-error');
+      const fail = (msg) => {
+        errBox.textContent = msg;
+        errBox.classList.remove('hidden');
+        btn.disabled = false;
+        btn.textContent = 'Approve ✓';
+      };
+      btn.disabled = true;
+      btn.textContent = 'Approving…';
+      try {
+        const save = await fetch(`/reviews/${btn.dataset.id}`, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({summary: ta.value})
+        });
+        if (!save.ok) return fail('summary save failed: ' + (await save.text()));
+        const res = await fetch(`/pr/${btn.dataset.id}/submit`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({event: 'APPROVE'})
+        });
+        if (!res.ok) return fail(await res.text());
+        location.reload();
+      } catch (err) {
+        fail('approve failed: ' + err);
+      }
+    });
+  });
+
+  document.querySelectorAll('.dismiss-cta').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      // Claim the button synchronously before confirm() so a double-fired
+      // click can't open a second dialog while the first is still open.
+      if (btn.disabled) return;
+      btn.disabled = true;
+      if (!confirm(`Dismiss the review for ${btn.dataset.pr}? Nothing posts to GitHub.`)) {
+        btn.disabled = false; // cancelled — allow a retry
+        return;
+      }
+      try {
+        const res = await fetch(`/pr/${btn.dataset.id}/dismiss`, {method: 'POST'});
+        if (!res.ok) {
+          toast('Dismiss failed: ' + (await res.text()), 'error');
+          btn.disabled = false;
+          return;
+        }
+        location.reload();
+      } catch (err) {
+        toast('Dismiss failed: ' + err, 'error');
+        btn.disabled = false;
+      }
+    });
+  });
+})();
+</script>
+{{end}}
