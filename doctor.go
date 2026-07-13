@@ -40,9 +40,17 @@ func runChecks(ctx context.Context, cfg Config) []checkResult {
 		out = append(out, checkResult{"claude CLI", true, ""})
 	}
 
-	if path, err := skillInstallPath(); err == nil {
+	skill := cfg.Claude.Skill
+	if skill == "" {
+		skill = defaultSkillName
+	}
+	if path, err := skillInstallPath(skill); err == nil {
 		_, statErr := os.Stat(path)
-		out = append(out, checkResult{"pr-review-structured skill", statErr == nil, "run: cockpit install-skill"})
+		hint := "run: cockpit install-skill"
+		if skill != defaultSkillName {
+			hint = fmt.Sprintf("install with: cockpit install-skill --as %s  (or edit claude.skill in config)", skill)
+		}
+		out = append(out, checkResult{fmt.Sprintf("%s skill", skill), statErr == nil, hint})
 	}
 
 	return out

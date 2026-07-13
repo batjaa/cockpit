@@ -122,7 +122,7 @@ func TestE2E_RunStructuredReview(t *testing.T) {
 	dir := writeStubClaude(t, sampleStructuredJSON, 0)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	sr, raw, err := RunStructuredReview(context.Background(), "claude",
+	sr, raw, err := RunStructuredReview(context.Background(), "claude", "",
 		"https://github.com/owner/repo/pull/123", "", 30*time.Second)
 	if err != nil {
 		t.Fatalf("RunStructuredReview: %v", err)
@@ -154,7 +154,7 @@ func TestE2E_StructuredReviewError(t *testing.T) {
 	dir := writeStubClaude(t, `{"error": "PR not found"}`, 0)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	sr, _, err := RunStructuredReview(context.Background(), "claude",
+	sr, _, err := RunStructuredReview(context.Background(), "claude", "",
 		"https://github.com/owner/repo/pull/999", "", 30*time.Second)
 	if err == nil {
 		t.Fatal("want error")
@@ -208,7 +208,7 @@ func TestE2E_DiscoverReviewPersist(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sr, raw, err := RunStructuredReview(ctx, "claude", prs[0].URL, "", 30*time.Second)
+	sr, raw, err := RunStructuredReview(ctx, "claude", "", prs[0].URL, "", 30*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}

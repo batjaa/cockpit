@@ -7,27 +7,38 @@ import (
 	"path/filepath"
 )
 
-// prReviewSkill is the vendored pr-review-structured skill, embedded so a
+// defaultSkillName is the slug cockpit ships as its default review engine
+// and the folder it installs under ~/.claude/skills. Users can point
+// claude.skill in the config at any other slug that emits the same JSON.
+const defaultSkillName = "pr-review-structured"
+
+// prReviewSkill is the vendored default review skill, embedded so a
 // `go install`ed or brew-installed binary can lay it down without the repo
-// present. Keep skills/pr-review-structured/SKILL.md in sync with the skill
-// cockpit actually runs.
+// present. Keep skills/pr-review-structured/SKILL.md in sync — it's both
+// the shipped template and the documented output contract.
 //
 //go:embed skills/pr-review-structured/SKILL.md
 var prReviewSkill string
 
-// skillInstallPath is where `claude` looks up the review skill.
-func skillInstallPath() (string, error) {
+// skillInstallPath returns ~/.claude/skills/<name>/SKILL.md — where the
+// claude CLI looks up a skill by slug.
+func skillInstallPath(name string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".claude", "skills", "pr-review-structured", "SKILL.md"), nil
+	return filepath.Join(home, ".claude", "skills", name, "SKILL.md"), nil
 }
 
-// installSkill writes the embedded skill into ~/.claude/skills so that
-// `claude -p "/pr-review-structured ..."` can find and run it.
-func installSkill() (string, error) {
-	path, err := skillInstallPath()
+// installSkill writes the embedded review-skill template into
+// ~/.claude/skills/<name>/SKILL.md. Passing a custom name is how users
+// generate a starting point they can edit; the JSON output contract at the
+// bottom of SKILL.md must be preserved so cockpit can parse the result.
+func installSkill(name string) (string, error) {
+	if name == "" {
+		name = defaultSkillName
+	}
+	path, err := skillInstallPath(name)
 	if err != nil {
 		return "", err
 	}

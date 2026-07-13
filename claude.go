@@ -55,20 +55,23 @@ type StructuredReviewFinding struct {
 	Body         string `json:"body"`
 }
 
-// RunStructuredReview invokes `claude -p "/pr-review-structured <prURL>"`
+// RunStructuredReview invokes `claude -p "/<skill> <prURL>"`
 // with the given timeout, then parses the last JSON object from stdout.
 // previousPath, when non-empty, points at a re-review context file and is
 // passed to the skill as --previous. Returns the parsed review plus the
 // raw stdout (always — useful for debugging on parse failure).
-func RunStructuredReview(ctx context.Context, binary, prURL, previousPath string, timeout time.Duration) (*StructuredReview, []byte, error) {
+func RunStructuredReview(ctx context.Context, binary, skill, prURL, previousPath string, timeout time.Duration) (*StructuredReview, []byte, error) {
+	if skill == "" {
+		skill = defaultSkillName
+	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	prompt := "/pr-review-structured " + prURL
+	prompt := "/" + skill + " " + prURL
 	if previousPath != "" {
 		prompt += " --previous " + previousPath
 	}
-	// bypassPermissions is required because the pr-review-structured skill
+	// bypassPermissions is required because the review skill
 	// shells out to `gh` to fetch PR metadata / diff. acceptEdits only
 	// auto-approves Edit/Write tools — bash commands would prompt and the
 	// skill would hang. The skill itself is read-only (its rules forbid

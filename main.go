@@ -22,11 +22,22 @@ func main() {
 			fmt.Println(version)
 			return
 		case "install-skill":
-			path, err := installSkill()
+			// install-skill [--as <name>]  — writes the shipped template into
+			// ~/.claude/skills/<name>/SKILL.md. Use --as to fork the template
+			// under a custom slug you can edit; then set claude.skill in the
+			// config to point cockpit at it.
+			fs := flag.NewFlagSet("install-skill", flag.ExitOnError)
+			as := fs.String("as", defaultSkillName, "install under this skill slug (edit ~/.claude/skills/<name>/SKILL.md after)")
+			_ = fs.Parse(os.Args[2:])
+			path, err := installSkill(*as)
 			if err != nil {
 				fail("install-skill", err)
 			}
-			fmt.Println("installed pr-review-structured skill →", path)
+			fmt.Printf("installed review skill %q → %s\n", *as, path)
+			if *as != defaultSkillName {
+				fmt.Printf("\nTo use it, set in ~/.cockpit/config.json:\n  \"claude\": { \"skill\": %q }\n", *as)
+				fmt.Println("Preserve the JSON output contract at the bottom of SKILL.md — cockpit parses those fields.")
+			}
 			return
 		}
 	}

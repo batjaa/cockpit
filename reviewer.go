@@ -277,7 +277,7 @@ func reviewIfNeeded(ctx context.Context, db *sql.DB, cfg Config, prID int64, p G
 	}
 
 	timeout := time.Duration(cfg.Claude.TimeoutSeconds) * time.Second
-	sr, raw, err := RunStructuredReview(ctx, cfg.Claude.Binary, p.URL, previousPath, timeout)
+	sr, raw, err := RunStructuredReview(ctx, cfg.Claude.Binary, cfg.Claude.Skill, p.URL, previousPath, timeout)
 	if err != nil {
 		if ctx.Err() != nil {
 			slog.Warn("review interrupted by shutdown", "pr", p.URL)

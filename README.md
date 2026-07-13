@@ -60,7 +60,7 @@ First run creates `~/.cockpit/config.json` with defaults:
 {
   "search": "",
   "schedule": { "start_hour": 6, "end_hour": 18, "interval_hours": 4, "run_on_launch": true },
-  "claude":   { "binary": "claude", "timeout_seconds": 600, "concurrency": 3 },
+  "claude":   { "binary": "claude", "timeout_seconds": 600, "concurrency": 3, "skill": "pr-review-structured" },
   "http":     { "addr": "127.0.0.1:8765" },
   "sessions": {
     "enabled": true,
@@ -123,9 +123,10 @@ cockpit --scan-sessions
 Setup / maintenance subcommands:
 
 ```bash
-cockpit install-skill   # write the vendored review skill into ~/.claude/skills
-cockpit doctor          # check gh / claude / skill are ready, with fix hints
-cockpit version         # print the build version
+cockpit install-skill              # install the default review skill
+cockpit install-skill --as my-fork # fork it under a custom slug you can edit
+cockpit doctor                     # check gh / claude / skill are ready
+cockpit version                    # print the build version
 ```
 
 Override the config path: `--config /some/path.json`.
@@ -176,6 +177,39 @@ per PR). Ctrl-C kills in-flight claude processes and marks the run
 `interrupted by shutdown`; PRs that didn't finish are picked up by the
 next run, since the SHA-skip logic only honors pending/posted reviews.
 Stale `running` runs from a hard kill are marked interrupted at startup.
+
+## Custom review skills
+
+The reviewer is a Claude skill, so it's swappable. Cockpit ships a default
+(`pr-review-structured`, vendored under `skills/` and installed via
+`cockpit install-skill`), but you can point it at any skill under
+`~/.claude/skills` that follows the output contract.
+
+Fork the template under your own slug, edit it, wire it up:
+
+```bash
+cockpit install-skill --as my-review   # writes ~/.claude/skills/my-review/SKILL.md
+$EDITOR ~/.claude/skills/my-review/SKILL.md
+# set in ~/.cockpit/config.json:
+#   "claude": { "skill": "my-review" }
+cockpit doctor                         # confirms cockpit sees your skill
+```
+
+You can change how the skill reviews (framework, tone, additional
+checks, per-team house rules) freely, but you **must** preserve the JSON
+output contract documented at the bottom of `SKILL.md`. Cockpit invokes
+`claude -p "/<skill> <pr-url> [--previous <path>]"` and parses the
+trailing JSON object for these fields:
+
+- `pr` (owner/repo/number/title/author/head_sha)
+- `summary` — posted verbatim as the review body
+- `verdict` — `approve` / `approve-with-suggestions` / `request-changes`
+- `findings[]` — id/severity/perfect/path/line/original_line/body
+- `positives[]`
+- `followups[]` — only when `--previous` is passed (re-review context)
+
+If a custom skill breaks the schema, the review fails with a parse error
+and cockpit records the raw output for debugging.
 
 ## Sessions
 

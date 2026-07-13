@@ -27,6 +27,11 @@ type ClaudeConfig struct {
 	Binary         string `json:"binary"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
 	Concurrency    int    `json:"concurrency"`
+	// Skill is the slug cockpit invokes: `claude -p "/{skill} <pr-url>"`.
+	// Point this at any skill under ~/.claude/skills that emits the JSON
+	// structure documented in skills/pr-review-structured/SKILL.md. Install
+	// the template under a custom name with `cockpit install-skill --as X`.
+	Skill string `json:"skill"`
 }
 
 type HTTPConfig struct {
@@ -67,6 +72,7 @@ func DefaultConfig() Config {
 			Binary:         "claude",
 			TimeoutSeconds: 600,
 			Concurrency:    3,
+			Skill:          defaultSkillName,
 		},
 		HTTP: HTTPConfig{
 			Addr: "127.0.0.1:8765",
@@ -120,6 +126,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Claude.Concurrency <= 0 {
 		c.Claude.Concurrency = 3
+	}
+	if c.Claude.Skill == "" {
+		c.Claude.Skill = defaultSkillName
 	}
 	if c.HTTP.Addr == "" {
 		c.HTTP.Addr = "127.0.0.1:8765"
