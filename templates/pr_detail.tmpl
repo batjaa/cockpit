@@ -72,6 +72,7 @@
                  {{if .Selected}}checked{{end}}>
           <div class="flex-1 min-w-0">
             <div class="text-xs mono text-zinc-500 mb-1.5">{{.Path}}:{{.Line}}</div>
+            {{if .DiffHunkHTML}}<div class="mb-2">{{.DiffHunkHTML}}</div>{{end}}
             <div class="prose prose-sm prose-zinc max-w-none prose-pre:bg-zinc-900 prose-pre:text-zinc-100 prose-code:before:content-none prose-code:after:content-none">{{.BodyHTML}}</div>
           </div>
         </div>

@@ -170,8 +170,8 @@ func PersistReview(ctx context.Context, db *sql.DB, prID, runID int64, sr *Struc
 	}
 
 	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO comments (review_id, severity, path, line, body)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO comments (review_id, severity, path, line, body, diff_hunk)
+		VALUES (?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return 0, fmt.Errorf("prepare comment insert: %w", err)
@@ -179,7 +179,7 @@ func PersistReview(ctx context.Context, db *sql.DB, prID, runID int64, sr *Struc
 	defer stmt.Close()
 
 	for _, f := range sr.Findings {
-		if _, err := stmt.ExecContext(ctx, reviewID, f.Severity, f.Path, f.Line, f.Body); err != nil {
+		if _, err := stmt.ExecContext(ctx, reviewID, f.Severity, f.Path, f.Line, f.Body, f.DiffHunk); err != nil {
 			return 0, fmt.Errorf("insert comment: %w", err)
 		}
 	}
@@ -308,7 +308,7 @@ func ListPendingReviews(ctx context.Context, db *sql.DB) ([]DashboardReview, err
 // grouped by review id — used by the dashboard's expandable cards.
 func ListPendingComments(ctx context.Context, db *sql.DB) (map[int64][]CommentDetail, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT c.review_id, c.id, c.severity, c.path, c.line, c.body, c.selected
+		SELECT c.review_id, c.id, c.severity, c.path, c.line, c.body, COALESCE(c.diff_hunk,''), c.selected
 		FROM comments c
 		JOIN reviews r ON r.id = c.review_id
 		WHERE r.state='pending'
@@ -328,7 +328,7 @@ func ListPendingComments(ctx context.Context, db *sql.DB) (map[int64][]CommentDe
 		var reviewID int64
 		var c CommentDetail
 		var sel int
-		if err := rows.Scan(&reviewID, &c.ID, &c.Severity, &c.Path, &c.Line, &c.Body, &sel); err != nil {
+		if err := rows.Scan(&reviewID, &c.ID, &c.Severity, &c.Path, &c.Line, &c.Body, &c.DiffHunk, &sel); err != nil {
 			return nil, fmt.Errorf("scan pending comment: %w", err)
 		}
 		c.Selected = sel != 0
@@ -344,6 +344,7 @@ type CommentDetail struct {
 	Path     string
 	Line     int
 	Body     string
+	DiffHunk string // code area captured at review time; "" for pre-migration rows
 	Selected bool
 }
 
@@ -388,7 +389,7 @@ func GetReviewDetail(ctx context.Context, db *sql.DB, reviewID int64) (*ReviewDe
 	}
 
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, severity, path, line, body, selected
+		SELECT id, severity, path, line, body, COALESCE(diff_hunk,''), selected
 		FROM comments
 		WHERE review_id = ?
 		ORDER BY
@@ -408,7 +409,7 @@ func GetReviewDetail(ctx context.Context, db *sql.DB, reviewID int64) (*ReviewDe
 	for rows.Next() {
 		var c CommentDetail
 		var sel int
-		if err := rows.Scan(&c.ID, &c.Severity, &c.Path, &c.Line, &c.Body, &sel); err != nil {
+		if err := rows.Scan(&c.ID, &c.Severity, &c.Path, &c.Line, &c.Body, &c.DiffHunk, &sel); err != nil {
 			return nil, fmt.Errorf("scan comment: %w", err)
 		}
 		c.Selected = sel != 0

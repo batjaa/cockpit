@@ -57,6 +57,7 @@ func OpenDB(path string) (*sql.DB, error) {
 		`ALTER TABLE sessions ADD COLUMN branch TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE prs ADD COLUMN pr_created_at DATETIME`,
 		`ALTER TABLE prs ADD COLUMN pr_updated_at DATETIME`,
+		`ALTER TABLE comments ADD COLUMN diff_hunk TEXT`,
 	}
 	for _, m := range migrations {
 		if _, err := db.Exec(m); err != nil {

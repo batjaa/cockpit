@@ -333,6 +333,9 @@ func resolveFindingLines(ctx context.Context, sr *StructuredReview, prURL string
 			slog.Info("snapped finding line into diff hunk", "pr", prURL, "path", f.Path, "from", f.Line, "to", resolved)
 			f.Line = resolved
 		}
+		// Capture the diff hunk against the snapped (postable) line so the UI
+		// can render it like GitHub's diff_hunk.
+		f.DiffHunk = extractDiffSnippet(diff, f.Path, resolved)
 	}
 }
 

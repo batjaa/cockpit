@@ -355,6 +355,80 @@ func resolveLine(hunks map[string][]lineRange, path string, line int) (int, bool
 	return best, true
 }
 
+// snippetMaxLines caps how many hunk content lines precede-and-include the
+// anchor in a captured diff snippet. Oversized hunks are truncated to the
+// last snippetMaxLines lines ending at the anchor; the @@ header numbers are
+// left untouched (the snippet is for display, not re-parsing).
+const snippetMaxLines = 30
+
+// extractDiffSnippet returns the diff_hunk (GitHub semantics) for path@line:
+// the hunk's @@ header followed by every hunk line from the hunk start
+// through the line whose new-file number equals line — nothing after the
+// anchor. Returns "" when line <= 0, the file isn't in the diff, or no hunk
+// contains line.
+//
+// New-file line accounting mirrors parseDiffHunks: context (" ") and added
+// ("+") lines advance the counter; removed ("-") lines do not. So "-" lines
+// before the anchor must not shift it.
+func extractDiffSnippet(diff string, path string, line int) string {
+	if line <= 0 {
+		return ""
+	}
+	var (
+		curFile string
+		inHunk  bool     // walking a hunk that belongs to path
+		header  string   // current hunk's @@ header
+		newLine int      // new-file line number of the next " "/"+" line
+		body    []string // hunk content lines accumulated after the header
+	)
+	for _, ln := range strings.Split(diff, "\n") {
+		if rest, ok := strings.CutPrefix(ln, "+++ b/"); ok {
+			curFile = rest
+			inHunk = false
+			continue
+		}
+		if strings.HasPrefix(ln, "diff --git") {
+			inHunk = false // new file; abandon any in-progress hunk
+			continue
+		}
+		if strings.HasPrefix(ln, "@@") {
+			m := hunkRe.FindStringSubmatch(ln)
+			if m == nil {
+				inHunk = false
+				continue
+			}
+			start, _ := strconv.Atoi(m[1])
+			header, newLine, body, inHunk = ln, start, body[:0], curFile == path
+			continue
+		}
+		if !inHunk {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(ln, "-"):
+			body = append(body, ln) // removed: does not advance new-file line
+		case strings.HasPrefix(ln, "+"), strings.HasPrefix(ln, " "):
+			body = append(body, ln)
+			if newLine == line {
+				return joinSnippet(header, body)
+			}
+			newLine++
+		case strings.HasPrefix(ln, `\`):
+			body = append(body, ln) // "\ No newline at end of file" marker
+		default:
+			inHunk = false // unrecognized line (e.g. trailing "") ends the hunk
+		}
+	}
+	return ""
+}
+
+func joinSnippet(header string, body []string) string {
+	if len(body) > snippetMaxLines {
+		body = body[len(body)-snippetMaxLines:]
+	}
+	return header + "\n" + strings.Join(body, "\n")
+}
+
 // ReviewThread is one inline-comment thread on a PR, flattened from the
 // GraphQL response: the root comment plus any replies.
 type ReviewThread struct {

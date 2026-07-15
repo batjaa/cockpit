@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS comments (
   path      TEXT NOT NULL,
   line      INTEGER NOT NULL,
   body      TEXT NOT NULL,
+  diff_hunk TEXT,                          -- code area the finding refers to, captured at review time
   selected  INTEGER NOT NULL DEFAULT 0,
   posted    INTEGER NOT NULL DEFAULT 0,
   github_id INTEGER

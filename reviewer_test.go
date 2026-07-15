@@ -13,13 +13,33 @@ import (
 	"time"
 )
 
+// stubDiff is the unified diff the gh stub returns for `gh pr diff`. It adds
+// a.go with a hunk covering new-file line 1, matching the finding
+// claudeFixtureFor emits (path a.go, line 1), so resolveFindingLines captures
+// a real diff_hunk in e2e tests instead of silently no-opping.
+const stubDiff = `diff --git a/a.go b/a.go
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/a.go
+@@ -0,0 +1,3 @@
++package main
++
++func main() {}`
+
 // writeStubs writes both gh and claude stubs into dir, each returning
 // the given fixture. Either may be empty to leave the existing stub
 // intact (useful when rewriting between phases).
+//
+// The gh stub dispatches on args: `gh pr diff ...` ($2=diff) returns stubDiff
+// so the line-resolution path runs for real; every other invocation
+// (pr list, api user) returns ghFixture.
 func writeStubs(t *testing.T, dir, ghFixture, claudeFixture string) {
 	t.Helper()
 	if ghFixture != "" {
-		script := fmt.Sprintf("#!/bin/sh\ncat <<'JSON_EOF'\n%s\nJSON_EOF\n", ghFixture)
+		script := fmt.Sprintf(
+			"#!/bin/sh\nif [ \"$2\" = \"diff\" ]; then\ncat <<'DIFF_EOF'\n%s\nDIFF_EOF\nexit 0\nfi\ncat <<'JSON_EOF'\n%s\nJSON_EOF\n",
+			stubDiff, ghFixture)
 		if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -146,6 +166,40 @@ func TestE2E_DiscoverDecisionLogic(t *testing.T) {
 	db.QueryRow(`SELECT COUNT(*) FROM runs WHERE status='success'`).Scan(&successCount)
 	if runCount != 3 || successCount != 3 {
 		t.Errorf("runs: total=%d success=%d want 3/3", runCount, successCount)
+	}
+}
+
+// TestE2E_DiffHunkPersisted verifies the capture path end to end: after a
+// discover run, the persisted comment carries the diff hunk the finding
+// refers to — the @@ header plus the added source line from the stub diff.
+func TestE2E_DiffHunkPersisted(t *testing.T) {
+	dir := t.TempDir()
+	writeStubs(t, dir, ghFixtureFor("sha1"), claudeFixtureFor("sha1"))
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	cfg := Config{Search: "repo:o/r is:pr", Claude: ClaudeConfig{Binary: "claude", TimeoutSeconds: 30}}
+	if err := Discover(context.Background(), db, cfg, "manual", time.Now(), nil); err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+
+	var hunk string
+	if err := db.QueryRow(`SELECT COALESCE(diff_hunk,'') FROM comments`).Scan(&hunk); err != nil {
+		t.Fatal(err)
+	}
+	if hunk == "" {
+		t.Fatal("diff_hunk empty; capture path did not run")
+	}
+	if !strings.HasPrefix(hunk, "@@") {
+		t.Errorf("diff_hunk should start with @@, got %q", hunk)
+	}
+	if !strings.Contains(hunk, "package main") {
+		t.Errorf("diff_hunk missing stub source line, got %q", hunk)
 	}
 }
 

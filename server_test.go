@@ -198,6 +198,76 @@ func TestServer_DetailPageRendersMarkdown(t *testing.T) {
 	}
 }
 
+// TestServer_DiffHunkRendering seeds a review with one comment carrying a
+// diff hunk whose code text is attacker-controlled, and one comment with no
+// hunk. Both comment surfaces — the dashboard severity popover and the
+// detail page card — must render the hunk as an escaped, colored block, and
+// must render no container at all for the hunk-less comment.
+func TestServer_DiffHunkRendering(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+	runID, _ := InsertRun(ctx, db, "manual", now)
+	prID, _ := UpsertPR(ctx, db, GHPR{
+		Number: 9, Title: "Hunk PR", URL: "https://github.com/o/r/pull/9",
+		HeadRefOid: "s", Author: GHAuthor{Login: "a"},
+	}, now)
+	hunk := "@@ -1,2 +1,3 @@\n func main() {\n-\told()\n+\tinject := \"<script>alert(1)</script>\"\n }"
+	sr := &StructuredReview{
+		PR:      StructuredReviewPR{HeadSHA: "s"},
+		Summary: "Fine.",
+		Findings: []StructuredReviewFinding{
+			{ID: "M1", Severity: "major", Path: "a.go", Line: 4, Body: "**issue (blocking):** Injected.", DiffHunk: hunk},
+			{ID: "n1", Severity: "nit", Path: "b.go", Line: 8, Body: "**nitpick (non-blocking):** meh."}, // no hunk
+		},
+	}
+	reviewID, err := PersistReview(ctx, db, prID, runID, sr, "raw", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := &server{db: db}
+	mux := http.NewServeMux()
+	s.routes(mux)
+
+	for _, path := range []string{"/", "/pr/" + intToStr(reviewID)} {
+		req := httptest.NewRequest("GET", path, nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != 200 {
+			t.Fatalf("GET %s status=%d body=%s", path, w.Code, w.Body.String())
+		}
+		body := w.Body.String()
+		for _, want := range []string{
+			// hunk header line, zinc-styled
+			`text-zinc-500 bg-zinc-50">@@ -1,2 +1,3 @@</span>`,
+			// added line got the green classes; its code text is escaped
+			`bg-green-50 text-green-800">+`,
+			// removed line got the red classes
+			`bg-red-50 text-red-800">-`,
+			// arbitrary code is HTML-escaped, never raw
+			"&lt;script&gt;alert(1)&lt;/script&gt;",
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("GET %s: missing %q in body", path, want)
+			}
+		}
+		if strings.Contains(body, "<script>alert") {
+			t.Errorf("GET %s: hunk code passed through unescaped — XSS", path)
+		}
+		// Exactly one comment carries a hunk; the empty-hunk comment must
+		// render no diff container at all.
+		if got := strings.Count(body, "data-diff-hunk"); got != 1 {
+			t.Errorf("GET %s: data-diff-hunk containers = %d, want 1 (empty hunk must render nothing)", path, got)
+		}
+	}
+}
+
 func TestServer_CommentToggle(t *testing.T) {
 	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {

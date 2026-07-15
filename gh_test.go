@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -255,6 +256,146 @@ echo "[]"
 		if !nums[want] {
 			t.Errorf("missing PR #%d in union", want)
 		}
+	}
+}
+
+func TestExtractDiffSnippet(t *testing.T) {
+	// Two files; a.go and b.go each carry a single hunk. New-file line
+	// numbers: a.go {1: package a, 2: added-a, 3: var A}; b.go starts at 10.
+	multiFile := `diff --git a/a.go b/a.go
+index e69de29..1111111 100644
+--- a/a.go
++++ b/a.go
+@@ -1,2 +1,3 @@
+ package a
++// added-a
+ var A = 1
+diff --git a/b.go b/b.go
+index e69de29..2222222 100644
+--- a/b.go
++++ b/b.go
+@@ -10,2 +10,3 @@
+ package b
++// added-b
+ var B = 2
+`
+
+	// One file, two hunks — target lands in the second so we prove the walk
+	// resets per @@ and doesn't leak hunk-1 lines.
+	multiHunk := `diff --git a/m.go b/m.go
+--- a/m.go
++++ b/m.go
+@@ -1,2 +1,2 @@
+ first
+ second
+@@ -20,2 +20,3 @@
+ twenty
++twentyone
+ twentytwo
+`
+
+	// A removed line sits before the anchor; it must not shift the new-file
+	// counter, so line 2 is addedNew (not keep3).
+	removedBefore := `diff --git a/r.go b/r.go
+--- a/r.go
++++ b/r.go
+@@ -1,3 +1,3 @@
+ keep1
+-removed
++addedNew
+ keep3
+`
+
+	// 40 added lines; the anchor at line 40 forces truncation to the last 30.
+	var big strings.Builder
+	big.WriteString("diff --git a/big.go b/big.go\n--- a/big.go\n+++ b/big.go\n@@ -0,0 +1,40 @@\n")
+	for i := 1; i <= 40; i++ {
+		fmt.Fprintf(&big, "+line%d\n", i)
+	}
+
+	cases := []struct {
+		name       string
+		diff       string
+		path       string
+		line       int
+		wantEmpty  bool
+		wantPrefix string
+		contains   []string
+		excludes   []string
+		wantLines  int // 0 = don't check
+	}{
+		{
+			name: "second file", diff: multiFile, path: "b.go", line: 11,
+			wantPrefix: "@@ -10,2 +10,3 @@",
+			contains:   []string{"added-b", "package b"},
+			excludes:   []string{"added-a", "var B = 2"},
+		},
+		{
+			name: "anchor at hunk first line", diff: multiFile, path: "a.go", line: 1,
+			wantPrefix: "@@ -1,2 +1,3 @@",
+			contains:   []string{"package a"},
+			excludes:   []string{"added-a", "var A = 1"},
+		},
+		{
+			name: "anchor at hunk last line", diff: multiFile, path: "a.go", line: 3,
+			wantPrefix: "@@ -1,2 +1,3 @@",
+			contains:   []string{"package a", "added-a", "var A = 1"},
+		},
+		{
+			name: "target in second hunk", diff: multiHunk, path: "m.go", line: 21,
+			wantPrefix: "@@ -20,2 +20,3 @@",
+			contains:   []string{"twenty", "twentyone"},
+			excludes:   []string{"first", "second", "twentytwo"},
+		},
+		{
+			name: "removed line does not shift anchor", diff: removedBefore, path: "r.go", line: 2,
+			wantPrefix: "@@ -1,3 +1,3 @@",
+			contains:   []string{"keep1", "-removed", "addedNew"},
+			excludes:   []string{"keep3"},
+		},
+		{
+			name: "truncation keeps last 30 ending at anchor", diff: big.String(), path: "big.go", line: 40,
+			wantPrefix: "@@ -0,0 +1,40 @@",
+			contains:   []string{"+line40", "+line11"},
+			excludes:   []string{"+line10\n", "+line1\n"},
+			wantLines:  1 + snippetMaxLines,
+		},
+		{name: "line not in any hunk", diff: multiFile, path: "a.go", line: 99, wantEmpty: true},
+		{name: "file missing", diff: multiFile, path: "nope.go", line: 1, wantEmpty: true},
+		{name: "non-positive line", diff: multiFile, path: "a.go", line: 0, wantEmpty: true},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := extractDiffSnippet(c.diff, c.path, c.line)
+			if c.wantEmpty {
+				if got != "" {
+					t.Fatalf("want empty, got %q", got)
+				}
+				return
+			}
+			if got == "" {
+				t.Fatalf("want snippet, got empty")
+			}
+			if !strings.HasPrefix(got, c.wantPrefix) {
+				t.Errorf("prefix: got %q want prefix %q", got, c.wantPrefix)
+			}
+			for _, s := range c.contains {
+				if !strings.Contains(got, s) {
+					t.Errorf("missing %q in:\n%s", s, got)
+				}
+			}
+			for _, s := range c.excludes {
+				if strings.Contains(got, s) {
+					t.Errorf("unexpected %q in:\n%s", s, got)
+				}
+			}
+			if c.wantLines != 0 {
+				if n := len(strings.Split(got, "\n")); n != c.wantLines {
+					t.Errorf("lines=%d want %d", n, c.wantLines)
+				}
+			}
+		})
 	}
 }
 

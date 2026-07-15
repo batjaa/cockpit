@@ -53,6 +53,11 @@ type StructuredReviewFinding struct {
 	Line         int    `json:"line"`
 	OriginalLine int    `json:"original_line"`
 	Body         string `json:"body"`
+
+	// DiffHunk is captured by cockpit at review time (see extractDiffSnippet),
+	// never parsed from the skill's JSON — json:"-" keeps a buggy or malicious
+	// skill from injecting it.
+	DiffHunk string `json:"-"`
 }
 
 // RunStructuredReview invokes `claude -p "/<skill> <prURL>"`

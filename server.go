@@ -160,8 +160,9 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	// that severity's findings.
 	type commentRow struct {
 		CommentDetail
-		PathShort string // last two path segments; full path in title attr
-		Excerpt   string
+		PathShort    string // last two path segments; full path in title attr
+		Excerpt      string
+		DiffHunkHTML template.HTML // "" when the finding carries no hunk
 	}
 	type sevGroup struct {
 		Key, Icon, Label string
@@ -197,6 +198,7 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 						CommentDetail: c,
 						PathShort:     shortPath(c.Path),
 						Excerpt:       excerpt(c.Body, 300),
+						DiffHunkHTML:  RenderDiffHunk(c.DiffHunk),
 					})
 				}
 			}
@@ -372,7 +374,8 @@ func (s *server) handleRunStatus(w http.ResponseWriter, r *http.Request) {
 
 type commentView struct {
 	CommentDetail
-	BodyHTML template.HTML
+	BodyHTML     template.HTML
+	DiffHunkHTML template.HTML // "" when the finding carries no hunk
 }
 
 type severityBlock struct {
@@ -408,6 +411,7 @@ func (s *server) handlePRDetail(w http.ResponseWriter, r *http.Request) {
 				severities[i].Comments = append(severities[i].Comments, commentView{
 					CommentDetail: c,
 					BodyHTML:      RenderMarkdown(c.Body),
+					DiffHunkHTML:  RenderDiffHunk(c.DiffHunk),
 				})
 				break
 			}

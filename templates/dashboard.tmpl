@@ -102,6 +102,7 @@
                     <span class="block mono truncate
                       {{if eq .Severity "blocker"}}text-red-600{{else if eq .Severity "major"}}text-orange-600{{else if eq .Severity "minor"}}text-yellow-700{{else}}text-zinc-400{{end}}"
                       title="{{.Path}}:{{.Line}}">{{.PathShort}}:{{.Line}}</span>
+                    {{if .DiffHunkHTML}}<span class="block max-h-40 overflow-y-auto mt-1">{{.DiffHunkHTML}}</span>{{end}}
                     <span class="block text-zinc-700 leading-snug line-clamp-3 mt-0.5">{{.Excerpt}}</span>
                   </span>
                 </label>
