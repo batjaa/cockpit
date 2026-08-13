@@ -60,7 +60,8 @@ First run creates `~/.cockpit/config.json` with defaults:
 {
   "search": "",
   "schedule": { "start_hour": 6, "end_hour": 18, "interval_hours": 4, "run_on_launch": true },
-  "claude":   { "binary": "claude", "timeout_seconds": 600, "concurrency": 3, "skill": "pr-review-structured" },
+  "claude":   { "binary": "claude", "model": "sonnet", "timeout_seconds": 600, "concurrency": 3, "skill": "pr-review-structured" },
+  "review":   { "exclude_paths": ["*.pb.go", "vendor/", "go.sum", "..."] },
   "http":     { "addr": "127.0.0.1:8765" },
   "sessions": {
     "enabled": true,
@@ -95,6 +96,17 @@ Requirements:
   git checkout.
 - Don't include a leading `filters: ` — that's a gh-dash TOML key, not
   part of the search query.
+
+`review.exclude_paths` keeps findings on generated code out of reviews:
+any finding whose path matches a pattern is dropped before it's persisted
+(the review skill is also instructed to skip generated files, but this
+filter is the deterministic backstop). A pattern glob-matches the full
+repo-relative path or any suffix at a path-segment boundary — so
+`feature_flags.go` matches `svc/internal/feature_flags.go` — and a
+trailing `/` matches a directory segment anywhere (`vendor/`). The
+default list covers protobuf output, `*_gen.go`/`zz_generated*`, mocks,
+vendored deps, lockfiles, minified assets, and test snapshots; setting
+the field to an explicit `[]` disables exclusion.
 
 `author:`, `review-requested:`, and `team-review-requested:` are treated
 as OR'd "fan-out" qualifiers: cockpit runs one search per term and unions
@@ -171,6 +183,10 @@ Per matching PR, in the order documented in
 
 Reviews take 2–5 minutes per PR and run `claude.concurrency` at a time
 (default 3).
+
+Cockpit defaults to Claude Sonnet for reviews, independently of the model
+configured for interactive Claude Code sessions. Set `claude.model` to a
+different CLI model alias or full model name when a review needs it.
 
 Restart behavior: completed reviews are durable (one SQLite transaction
 per PR). Ctrl-C kills in-flight claude processes and marks the run

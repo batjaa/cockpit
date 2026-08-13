@@ -101,6 +101,31 @@ gh pr diff <num> --repo <owner>/<repo> > /tmp/pr<num>.diff
 
 ---
 
+## Step 0 — Skip generated code
+
+Generated files are not reviewed. Emit **no findings** (and no positives)
+for a file when either holds:
+
+- Its content carries a generation marker — `// Code generated … DO NOT
+  EDIT.`, `@generated`, or an equivalent "do not edit" header near the
+  top of the file.
+- Its path matches a well-known generated/lockfile pattern: `*.pb.go`,
+  `*.pb.gw.go`, `*_gen.go`, `*.gen.go`, `*_generated.go`,
+  `zz_generated*.go`, `*_string.go`, `mock_*.go`, `mocks/`, `vendor/`,
+  `node_modules/`, `go.sum`, `package-lock.json`, `yarn.lock`,
+  `pnpm-lock.yaml`, `*.min.*`, `__snapshots__/`, `*.snap` — or is
+  otherwise clearly machine-generated (registry-generated config,
+  feature-flag accessors, codegen output).
+
+You may still *read* generated hunks for context (e.g. a new flag name
+the hand-written code consumes), but they produce no findings and don't
+count toward the verdict. If the entire diff is generated, emit an empty
+`findings` array with a summary saying so. Consumers (cockpit) drop
+findings on excluded paths as a hard filter — a finding on a generated
+file is wasted work.
+
+---
+
 ## The PERFECT framework (canonical)
 
 Apply the seven principles top-down. Stop and flag blockers immediately —

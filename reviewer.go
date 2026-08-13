@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -91,7 +92,7 @@ func Discover(ctx context.Context, db *sql.DB, cfg Config, trigger string, now t
 				failed++
 				mu.Unlock()
 				if prog != nil {
-					prog.MarkFailed(p.URL)
+					prog.MarkFailed(p.URL, err.Error())
 				}
 				return
 			}
@@ -138,7 +139,11 @@ func Discover(ctx context.Context, db *sql.DB, cfg Config, trigger string, now t
 				case outcomeSkipped:
 					prog.MarkSkipped(p.URL)
 				case outcomeFailed:
-					prog.MarkFailed(p.URL)
+					message := "review failed"
+					if err != nil {
+						message = err.Error()
+					}
+					prog.MarkFailed(p.URL, message)
 				}
 			}
 		}(p)
@@ -211,7 +216,11 @@ func ReviewOne(ctx context.Context, db *sql.DB, cfg Config, prURL string, now ti
 		case outcomeSkipped:
 			prog.MarkSkipped(pr.URL)
 		case outcomeFailed:
-			prog.MarkFailed(pr.URL)
+			message := "review failed"
+			if err != nil {
+				message = err.Error()
+			}
+			prog.MarkFailed(pr.URL, message)
 		}
 	}
 	if ctx.Err() != nil {
@@ -277,18 +286,23 @@ func reviewIfNeeded(ctx context.Context, db *sql.DB, cfg Config, prID int64, p G
 	}
 
 	timeout := time.Duration(cfg.Claude.TimeoutSeconds) * time.Second
-	sr, raw, err := RunStructuredReview(ctx, cfg.Claude.Binary, cfg.Claude.Skill, p.URL, previousPath, timeout)
+	sr, raw, err := RunStructuredReview(ctx, cfg.Claude.Binary, cfg.Claude.Model, cfg.Claude.Skill, p.URL, previousPath, timeout)
 	if err != nil {
 		if ctx.Err() != nil {
 			slog.Warn("review interrupted by shutdown", "pr", p.URL)
 			return outcomeFailed, 0, ctx.Err()
 		}
-		slog.Error("review failed", "pr", p.URL, "err", err)
+		failure := err
+		if message := strings.TrimSpace(string(raw)); message != "" {
+			failure = fmt.Errorf("%s", message)
+		}
+		slog.Error("review failed", "pr", p.URL, "err", failure)
 		if _, perr := PersistFailedReview(dbCtx, db, prID, runID, p.HeadRefOid, string(raw), now); perr != nil {
 			slog.Error("persist failed review", "err", perr)
 		}
-		return outcomeFailed, 0, nil
+		return outcomeFailed, 0, failure
 	}
+	sr.Findings = dropExcludedFindings(sr.Findings, cfg.Review.ExcludePaths, p.URL)
 	resolveFindingLines(ctx, sr, p.URL)
 
 	reviewID, err := PersistReview(dbCtx, db, prID, runID, sr, string(raw), now)

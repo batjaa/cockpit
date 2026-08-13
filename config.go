@@ -12,8 +12,20 @@ type Config struct {
 	Search   string         `json:"search"`
 	Schedule ScheduleConfig `json:"schedule"`
 	Claude   ClaudeConfig   `json:"claude"`
+	Review   ReviewConfig   `json:"review"`
 	HTTP     HTTPConfig     `json:"http"`
 	Sessions SessionsConfig `json:"sessions"`
+}
+
+// ReviewConfig controls what gets reviewed.
+type ReviewConfig struct {
+	// ExcludePaths drops findings on matching paths before a review is
+	// persisted — generated code, lockfiles, vendored deps. The review
+	// skill is instructed to skip generated files too; this filter is the
+	// deterministic backstop. See pathExcluded for matching rules.
+	// nil (field absent from the config file) gets defaultExcludePaths;
+	// an explicit empty list disables exclusion entirely.
+	ExcludePaths []string `json:"exclude_paths"`
 }
 
 type ScheduleConfig struct {
@@ -25,6 +37,7 @@ type ScheduleConfig struct {
 
 type ClaudeConfig struct {
 	Binary         string `json:"binary"`
+	Model          string `json:"model"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
 	Concurrency    int    `json:"concurrency"`
 	// Skill is the slug cockpit invokes: `claude -p "/{skill} <pr-url>"`.
@@ -70,9 +83,13 @@ func DefaultConfig() Config {
 		},
 		Claude: ClaudeConfig{
 			Binary:         "claude",
+			Model:          "sonnet",
 			TimeoutSeconds: 600,
 			Concurrency:    3,
 			Skill:          defaultSkillName,
+		},
+		Review: ReviewConfig{
+			ExcludePaths: defaultExcludePaths(),
 		},
 		HTTP: HTTPConfig{
 			Addr: "127.0.0.1:8765",
@@ -121,6 +138,9 @@ func (c *Config) applyDefaults() {
 	if c.Claude.Binary == "" {
 		c.Claude.Binary = "claude"
 	}
+	if c.Claude.Model == "" {
+		c.Claude.Model = "sonnet"
+	}
 	if c.Claude.TimeoutSeconds <= 0 {
 		c.Claude.TimeoutSeconds = 600
 	}
@@ -129,6 +149,11 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Claude.Skill == "" {
 		c.Claude.Skill = defaultSkillName
+	}
+	// nil means the field was absent from the config file; an explicit
+	// empty list means the user turned exclusion off.
+	if c.Review.ExcludePaths == nil {
+		c.Review.ExcludePaths = defaultExcludePaths()
 	}
 	if c.HTTP.Addr == "" {
 		c.HTTP.Addr = "127.0.0.1:8765"

@@ -643,6 +643,73 @@ func TestE2E_ManualReviewEndpoint(t *testing.T) {
 	}
 }
 
+// TestE2E_ManualReviewDependencyFailureVisible covers a dependency that exits
+// cleanly but returns an authentication error instead of structured review
+// JSON. The failure must remain visible through both the status endpoint and
+// the reloaded dashboard after the worker stops.
+func TestE2E_ManualReviewDependencyFailureVisible(t *testing.T) {
+	dir := t.TempDir()
+	prJSON := `{"number":100,"title":"P1","url":"https://github.com/o/r/pull/100","headRefOid":"sha1","author":{"login":"alice"}}`
+	ghScript := fmt.Sprintf("#!/bin/sh\ncat <<'JSON_EOF'\n%s\nJSON_EOF\n", prJSON)
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(ghScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const dependencyError = "Failed to authenticate: OAuth session expired and could not be refreshed"
+	claudeScript := "#!/bin/sh\necho '" + dependencyError + "'\n"
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(claudeScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s := &server{db: db, cfg: Config{Claude: ClaudeConfig{Binary: "claude", TimeoutSeconds: 30}}, baseCtx: context.Background()}
+	mux := http.NewServeMux()
+	s.routes(mux)
+
+	w := postJSON(mux, "/review", `{"url":"https://github.com/o/r/pull/100"}`)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var status string
+		var finished sql.NullTime
+		err := db.QueryRow(`SELECT status, finished_at FROM runs ORDER BY id DESC LIMIT 1`).Scan(&status, &finished)
+		if err == nil && status == "error" && finished.Valid {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("failed review never finished: err=%v status=%q", err, status)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	req := httptest.NewRequest("GET", "/run-status", nil)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	statusBody := w.Body.String()
+	for _, want := range []string{`"state":"failed"`, `"error":"` + dependencyError + `"`} {
+		if !strings.Contains(statusBody, want) {
+			t.Errorf("run status missing %q: %s", want, statusBody)
+		}
+	}
+
+	req = httptest.NewRequest("GET", "/", nil)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	dashboardBody := w.Body.String()
+	for _, want := range []string{`role="alert"`, dependencyError} {
+		if !strings.Contains(dashboardBody, want) {
+			t.Errorf("dashboard missing %q", want)
+		}
+	}
+}
+
 // TestE2E_ManualReviewValidation: malformed URLs are rejected before a
 // run slot is consumed; a review submitted while busy is queued, not rejected.
 func TestE2E_ManualReviewValidation(t *testing.T) {

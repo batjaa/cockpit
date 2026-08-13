@@ -29,6 +29,11 @@ func TestNextRunTime(t *testing.T) {
 			ScheduleConfig{StartHour: 6, EndHour: 18, IntervalHours: 4},
 			day(12, 11, 0), day(12, 14, 0),
 		},
+		{
+			"single daily 4pm slot",
+			ScheduleConfig{StartHour: 16, EndHour: 17, IntervalHours: 24},
+			day(12, 16, 1), day(13, 16, 0),
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

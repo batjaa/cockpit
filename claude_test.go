@@ -122,7 +122,7 @@ func TestE2E_RunStructuredReview(t *testing.T) {
 	dir := writeStubClaude(t, sampleStructuredJSON, 0)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	sr, raw, err := RunStructuredReview(context.Background(), "claude", "",
+	sr, raw, err := RunStructuredReview(context.Background(), "claude", "sonnet", "",
 		"https://github.com/owner/repo/pull/123", "", 30*time.Second)
 	if err != nil {
 		t.Fatalf("RunStructuredReview: %v", err)
@@ -150,11 +150,34 @@ func TestE2E_RunStructuredReview(t *testing.T) {
 	}
 }
 
+func TestRunStructuredReviewPassesConfiguredModel(t *testing.T) {
+	dir := t.TempDir()
+	argsPath := filepath.Join(dir, "args")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$CLAUDE_ARGS_FILE\"\ncat <<'CLAUDE_EOF'\n" + sampleStructuredJSON + "\nCLAUDE_EOF\n"
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("CLAUDE_ARGS_FILE", argsPath)
+
+	if _, _, err := RunStructuredReview(context.Background(), "claude", "sonnet", "",
+		"https://github.com/owner/repo/pull/123", "", 30*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(args), "--model\nsonnet\n") {
+		t.Fatalf("configured model not passed to claude; args:\n%s", args)
+	}
+}
+
 func TestE2E_StructuredReviewError(t *testing.T) {
 	dir := writeStubClaude(t, `{"error": "PR not found"}`, 0)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	sr, _, err := RunStructuredReview(context.Background(), "claude", "",
+	sr, _, err := RunStructuredReview(context.Background(), "claude", "sonnet", "",
 		"https://github.com/owner/repo/pull/999", "", 30*time.Second)
 	if err == nil {
 		t.Fatal("want error")
@@ -208,7 +231,7 @@ func TestE2E_DiscoverReviewPersist(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sr, raw, err := RunStructuredReview(ctx, "claude", "", prs[0].URL, "", 30*time.Second)
+	sr, raw, err := RunStructuredReview(ctx, "claude", "sonnet", "", prs[0].URL, "", 30*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}

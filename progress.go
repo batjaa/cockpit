@@ -24,6 +24,7 @@ type PRProgress struct {
 	URL       string          `json:"url"`
 	State     prProgressState `json:"state"`
 	Findings  int             `json:"findings"`
+	Error     string          `json:"error,omitempty"`
 	StartedAt *time.Time      `json:"started_at,omitempty"`
 }
 
@@ -79,8 +80,11 @@ func (rp *RunProgress) MarkSkipped(url string) {
 	rp.set(url, func(it *PRProgress) { it.State = prSkipped })
 }
 
-func (rp *RunProgress) MarkFailed(url string) {
-	rp.set(url, func(it *PRProgress) { it.State = prFailed })
+func (rp *RunProgress) MarkFailed(url, message string) {
+	rp.set(url, func(it *PRProgress) {
+		it.State = prFailed
+		it.Error = message
+	})
 }
 
 func (rp *RunProgress) set(url string, fn func(*PRProgress)) {

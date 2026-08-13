@@ -65,7 +65,10 @@ type StructuredReviewFinding struct {
 // previousPath, when non-empty, points at a re-review context file and is
 // passed to the skill as --previous. Returns the parsed review plus the
 // raw stdout (always — useful for debugging on parse failure).
-func RunStructuredReview(ctx context.Context, binary, skill, prURL, previousPath string, timeout time.Duration) (*StructuredReview, []byte, error) {
+func RunStructuredReview(ctx context.Context, binary, model, skill, prURL, previousPath string, timeout time.Duration) (*StructuredReview, []byte, error) {
+	if model == "" {
+		model = "sonnet"
+	}
 	if skill == "" {
 		skill = defaultSkillName
 	}
@@ -83,6 +86,7 @@ func RunStructuredReview(ctx context.Context, binary, skill, prURL, previousPath
 	// posting and prompting), so the blast radius is bounded.
 	args := []string{
 		"-p",
+		"--model", model,
 		"--output-format", "text",
 		"--permission-mode", "bypassPermissions",
 		"--max-turns", "30",
