@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -416,5 +417,57 @@ func TestE2E_DiscoverReviewPersist(t *testing.T) {
 	}
 	if runErr.Valid {
 		t.Errorf("run error should be null, got %q", runErr.String)
+	}
+}
+
+func TestPersistReviewStoresStructuredFieldsSeparately(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	var sr StructuredReview
+	if err := json.Unmarshal([]byte(sampleStructuredJSON), &sr); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	now := time.Now()
+	runID, err := InsertRun(ctx, db, "manual", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prID, err := UpsertPR(ctx, db, GHPR{
+		Number: 123, Title: "Add foo", URL: "https://github.com/owner/backend/pull/123",
+		HeadRefOid: "sha-abc", Author: GHAuthor{Login: "alice"},
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewID, err := PersistReview(ctx, db, prID, runID, &sr, sampleStructuredJSON, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	detail, err := GetReviewDetail(ctx, db, reviewID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Summary != "" {
+		t.Errorf("new structured review populated legacy summary: %q", detail.Summary)
+	}
+	if detail.ReviewBrief == nil || detail.ReviewBrief.Change.Intent != sr.ReviewBrief.Change.Intent {
+		t.Errorf("review brief did not round trip: %+v", detail.ReviewBrief)
+	}
+	if detail.AuthorMessage != sr.AuthorMessage {
+		t.Errorf("author message=%q want %q", detail.AuthorMessage, sr.AuthorMessage)
+	}
+
+	rows, err := ListPendingReviews(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ReviewBrief == nil || rows[0].AuthorMessage != sr.AuthorMessage {
+		t.Fatalf("dashboard structured fields did not round trip: %+v", rows)
 	}
 }

@@ -36,7 +36,9 @@ CREATE TABLE IF NOT EXISTS reviews (
   pr_id            INTEGER NOT NULL REFERENCES prs(id),
   run_id           INTEGER NOT NULL REFERENCES runs(id),
   head_sha         TEXT NOT NULL,
-  summary          TEXT,
+  summary          TEXT, -- legacy v1 author-facing review body
+  review_brief     TEXT NOT NULL DEFAULT '', -- private structured JSON; never posted
+  author_message   TEXT NOT NULL DEFAULT '', -- optional v2 author-facing review body
   raw_output       TEXT,
   state            TEXT NOT NULL CHECK(state IN ('pending','posted','dismissed','failed')),
   created_at       DATETIME NOT NULL,

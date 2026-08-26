@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -225,6 +226,15 @@ func CleanupStaleRuns(ctx context.Context, db *sql.DB, now time.Time) (int64, er
 // single transaction. State is set to 'pending' — selection and posting
 // happens later via the web UI. Returns the new review id.
 func PersistReview(ctx context.Context, db *sql.DB, prID, runID int64, sr *StructuredReview, raw string, now time.Time) (int64, error) {
+	briefJSON := ""
+	if sr.ReviewBrief.RiskLevel != "" {
+		encoded, err := json.Marshal(sr.ReviewBrief)
+		if err != nil {
+			return 0, fmt.Errorf("encode review brief: %w", err)
+		}
+		briefJSON = string(encoded)
+	}
+
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, fmt.Errorf("begin tx: %w", err)
@@ -232,9 +242,12 @@ func PersistReview(ctx context.Context, db *sql.DB, prID, runID int64, sr *Struc
 	defer tx.Rollback()
 
 	res, err := tx.ExecContext(ctx, `
-		INSERT INTO reviews (pr_id, run_id, head_sha, summary, raw_output, state, created_at)
-		VALUES (?, ?, ?, ?, ?, 'pending', ?)
-	`, prID, runID, sr.PR.HeadSHA, sr.Summary, raw, dbTime(now))
+		INSERT INTO reviews (
+			pr_id, run_id, head_sha, summary, review_brief, author_message,
+			raw_output, state, created_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+	`, prID, runID, sr.PR.HeadSHA, sr.Summary, briefJSON, sr.AuthorMessage, raw, dbTime(now))
 	if err != nil {
 		return 0, fmt.Errorf("insert review: %w", err)
 	}
@@ -318,25 +331,27 @@ func DismissAllPendingReviewsForPR(ctx context.Context, db *sql.DB, prID int64) 
 
 // DashboardReview is the joined row shape for the dashboard listing.
 type DashboardReview struct {
-	ReviewID    int64
-	PRID        int64
-	Owner       string
-	Repo        string
-	Number      int
-	Title       string
-	Author      string
-	URL         string
-	HeadSHA     string
-	PRState     string // OPEN | MERGED | CLOSED
-	Summary     string
-	CreatedAt   time.Time    // review row created (when cockpit reviewed it)
-	PRCreatedAt sql.NullTime // PR opened time (GitHub); null for pre-migration rows
-	PRUpdatedAt sql.NullTime // PR last-activity time (GitHub)
-	Blockers    int
-	Majors      int
-	Minors      int
-	Nits        int
-	Selected    int // comments currently selected for posting
+	ReviewID      int64
+	PRID          int64
+	Owner         string
+	Repo          string
+	Number        int
+	Title         string
+	Author        string
+	URL           string
+	HeadSHA       string
+	PRState       string // OPEN | MERGED | CLOSED
+	Summary       string // legacy v1 author-facing review body
+	ReviewBrief   *StructuredReviewBrief
+	AuthorMessage string
+	CreatedAt     time.Time    // review row created (when cockpit reviewed it)
+	PRCreatedAt   sql.NullTime // PR opened time (GitHub); null for pre-migration rows
+	PRUpdatedAt   sql.NullTime // PR last-activity time (GitHub)
+	Blockers      int
+	Majors        int
+	Minors        int
+	Nits          int
+	Selected      int // comments currently selected for posting
 }
 
 // SkippedPR is a discovered open PR excluded by the review policy. It has no
@@ -392,7 +407,8 @@ func ListPendingReviews(ctx context.Context, db *sql.DB) ([]DashboardReview, err
 	rows, err := db.QueryContext(ctx, `
 		SELECT
 			r.id, p.id, p.owner, p.repo, p.number, p.title, p.author, p.url,
-			p.head_sha, p.state, COALESCE(r.summary, ''), r.created_at,
+			p.head_sha, p.state, COALESCE(r.summary, ''),
+			COALESCE(r.review_brief, ''), COALESCE(r.author_message, ''), r.created_at,
 			p.pr_created_at, p.pr_updated_at,
 			(SELECT COUNT(*) FROM comments WHERE review_id=r.id AND severity='blocker'),
 			(SELECT COUNT(*) FROM comments WHERE review_id=r.id AND severity='major'),
@@ -412,13 +428,21 @@ func ListPendingReviews(ctx context.Context, db *sql.DB) ([]DashboardReview, err
 	var out []DashboardReview
 	for rows.Next() {
 		var d DashboardReview
+		var briefJSON string
 		if err := rows.Scan(
 			&d.ReviewID, &d.PRID, &d.Owner, &d.Repo, &d.Number, &d.Title,
-			&d.Author, &d.URL, &d.HeadSHA, &d.PRState, &d.Summary, &d.CreatedAt,
+			&d.Author, &d.URL, &d.HeadSHA, &d.PRState, &d.Summary,
+			&briefJSON, &d.AuthorMessage, &d.CreatedAt,
 			&d.PRCreatedAt, &d.PRUpdatedAt,
 			&d.Blockers, &d.Majors, &d.Minors, &d.Nits, &d.Selected,
 		); err != nil {
 			return nil, fmt.Errorf("scan dashboard row: %w", err)
+		}
+		if briefJSON != "" {
+			d.ReviewBrief = &StructuredReviewBrief{}
+			if err := json.Unmarshal([]byte(briefJSON), d.ReviewBrief); err != nil {
+				return nil, fmt.Errorf("decode dashboard review %d brief: %w", d.ReviewID, err)
+			}
 		}
 		out = append(out, d)
 	}
@@ -480,33 +504,44 @@ type FollowupDetail struct {
 
 // ReviewDetail is the full data for the /pr/{id} page.
 type ReviewDetail struct {
-	ReviewID  int64
-	State     string
-	HeadSHA   string // SHA the review was generated against (may lag prs.head_sha)
-	Summary   string
-	CreatedAt time.Time
-	PR        DashboardReview // reuse fields; only PR-related cells populated
-	Comments  []CommentDetail
-	Followups []FollowupDetail
+	ReviewID      int64
+	State         string
+	HeadSHA       string // SHA the review was generated against (may lag prs.head_sha)
+	Summary       string // legacy v1 author-facing review body
+	ReviewBrief   *StructuredReviewBrief
+	AuthorMessage string
+	CreatedAt     time.Time
+	PR            DashboardReview // reuse fields; only PR-related cells populated
+	Comments      []CommentDetail
+	Followups     []FollowupDetail
 }
 
 // GetReviewDetail loads a single review by id, with its PR and all
 // comments. Returns sql.ErrNoRows if the review is absent.
 func GetReviewDetail(ctx context.Context, db *sql.DB, reviewID int64) (*ReviewDetail, error) {
 	var d ReviewDetail
+	var briefJSON string
 	err := db.QueryRowContext(ctx, `
-		SELECT r.id, r.state, r.head_sha, COALESCE(r.summary, ''), r.created_at,
+		SELECT r.id, r.state, r.head_sha, COALESCE(r.summary, ''),
+		       COALESCE(r.review_brief, ''), COALESCE(r.author_message, ''), r.created_at,
 		       p.id, p.owner, p.repo, p.number, p.title, p.author, p.url, p.head_sha, p.state
 		FROM reviews r
 		JOIN prs p ON p.id = r.pr_id
 		WHERE r.id = ?
 	`, reviewID).Scan(
-		&d.ReviewID, &d.State, &d.HeadSHA, &d.Summary, &d.CreatedAt,
+		&d.ReviewID, &d.State, &d.HeadSHA, &d.Summary,
+		&briefJSON, &d.AuthorMessage, &d.CreatedAt,
 		&d.PR.PRID, &d.PR.Owner, &d.PR.Repo, &d.PR.Number, &d.PR.Title,
 		&d.PR.Author, &d.PR.URL, &d.PR.HeadSHA, &d.PR.PRState,
 	)
 	if err != nil {
 		return nil, err
+	}
+	if briefJSON != "" {
+		d.ReviewBrief = &StructuredReviewBrief{}
+		if err := json.Unmarshal([]byte(briefJSON), d.ReviewBrief); err != nil {
+			return nil, fmt.Errorf("decode review %d brief: %w", d.ReviewID, err)
+		}
 	}
 
 	rows, err := db.QueryContext(ctx, `
