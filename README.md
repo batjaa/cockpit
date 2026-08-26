@@ -61,7 +61,10 @@ First run creates `~/.cockpit/config.json` with defaults:
   "search": "",
   "schedule": { "start_hour": 6, "end_hour": 18, "interval_hours": 4, "run_on_launch": true },
   "claude":   { "binary": "claude", "model": "sonnet", "timeout_seconds": 600, "concurrency": 3, "skill": "pr-review-structured" },
-  "review":   { "exclude_paths": ["*.pb.go", "vendor/", "go.sum", "..."] },
+  "review": {
+    "skip_authors": ["app/dependabot", "dependabot[bot]"],
+    "exclude_paths": ["*.pb.go", "vendor/", "go.sum", "..."]
+  },
   "http":     { "addr": "127.0.0.1:8765" },
   "sessions": {
     "enabled": true,
@@ -96,6 +99,12 @@ Requirements:
   git checkout.
 - Don't include a leading `filters: ` — that's a gh-dash TOML key, not
   part of the search query.
+
+`review.skip_authors` keeps matching PRs in discovery and on the dashboard,
+but marks them skipped without invoking Claude. Matching is case-insensitive;
+the defaults cover GitHub's Dependabot app and bot logins. Add more GitHub
+logins to extend the policy to other automation, or set an explicit `[]` to
+review every author.
 
 `review.exclude_paths` keeps findings on generated code out of reviews:
 any finding whose path matches a pattern is dropped before it's persisted

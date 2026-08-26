@@ -77,3 +77,26 @@ func TestExcludePathsDefaultBackfill(t *testing.T) {
 		t.Errorf("explicit empty exclude_paths should stay empty, got %v", off.Review.ExcludePaths)
 	}
 }
+
+func TestSkipAuthorsDefaultBackfill(t *testing.T) {
+	var absent Config
+	if err := json.Unmarshal([]byte(`{"review":{}}`), &absent); err != nil {
+		t.Fatal(err)
+	}
+	absent.applyDefaults()
+	if got := decideReview(GHPR{Author: GHAuthor{Login: "app/dependabot"}}, absent.Review); got.Action != reviewActionSkip {
+		t.Errorf("default config did not skip Dependabot: %+v", got)
+	}
+
+	var off Config
+	if err := json.Unmarshal([]byte(`{"review":{"skip_authors":[]}}`), &off); err != nil {
+		t.Fatal(err)
+	}
+	off.applyDefaults()
+	if off.Review.SkipAuthors == nil || len(off.Review.SkipAuthors) != 0 {
+		t.Errorf("explicit empty skip_authors should stay empty, got %v", off.Review.SkipAuthors)
+	}
+	if got := decideReview(GHPR{Author: GHAuthor{Login: "app/dependabot"}}, off.Review); got.Action != reviewActionReview {
+		t.Errorf("explicit empty skip_authors still skipped Dependabot: %+v", got)
+	}
+}

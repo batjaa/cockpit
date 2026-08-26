@@ -112,6 +112,41 @@ func TestServer_DashboardWithReview(t *testing.T) {
 	}
 }
 
+func TestServer_DashboardListsSkippedPR(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	now := time.Now()
+	p := GHPR{
+		Number: 84, Title: "Bump example from 1.0 to 1.1",
+		URL: "https://github.com/octo/repo/pull/84", HeadRefOid: "bot1234",
+		Author: GHAuthor{Login: "app/dependabot"}, State: "OPEN",
+	}
+	decision := decideReview(p, ReviewConfig{SkipAuthors: []string{"app/dependabot"}})
+	if _, err := UpsertPRWithDecision(context.Background(), db, p, now, decision); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &server{db: db}
+	mux := http.NewServeMux()
+	s.routes(mux)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	for _, want := range []string{"1 skipped", "Skipped", "Bump example from 1.0 to 1.1", "app/dependabot", "skipped · Dependabot-authored PR"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in dashboard body", want)
+		}
+	}
+}
+
 func TestServer_DetailPage(t *testing.T) {
 	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {

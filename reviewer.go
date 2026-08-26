@@ -85,7 +85,8 @@ func Discover(ctx context.Context, db *sql.DB, cfg Config, trigger string, now t
 				return
 			}
 
-			prID, err := UpsertPR(dbCtx, db, p, now)
+			decision := decideReview(p, cfg.Review)
+			prID, err := UpsertPRWithDecision(dbCtx, db, p, now, decision)
 			if err != nil {
 				slog.Error("upsert pr", "url", p.URL, "err", err)
 				mu.Lock()
@@ -93,6 +94,31 @@ func Discover(ctx context.Context, db *sql.DB, cfg Config, trigger string, now t
 				mu.Unlock()
 				if prog != nil {
 					prog.MarkFailed(p.URL, err.Error())
+				}
+				return
+			}
+
+			// Policy-skipped PRs stay persisted and visible, but never spend an
+			// LLM run. If the rule was introduced after a review was generated,
+			// clear that now-ineligible pending review as part of the transition.
+			if decision.Action == reviewActionSkip {
+				if _, err := DismissAllPendingReviewsForPR(dbCtx, db, prID); err != nil {
+					slog.Error("dismiss reviews for policy-skipped pr", "url", p.URL, "err", err)
+					mu.Lock()
+					failed++
+					mu.Unlock()
+					if prog != nil {
+						prog.MarkFailed(p.URL, err.Error())
+					}
+					return
+				}
+				reason := skipReasonLabel(decision.Reason, p.Author.Login)
+				slog.Info("skip review; review policy", "pr", p.URL, "reason", decision.Reason, "author", p.Author.Login)
+				mu.Lock()
+				skipped++
+				mu.Unlock()
+				if prog != nil {
+					prog.MarkSkipped(p.URL, reason)
 				}
 				return
 			}
@@ -110,7 +136,7 @@ func Discover(ctx context.Context, db *sql.DB, cfg Config, trigger string, now t
 				skipped++
 				mu.Unlock()
 				if prog != nil {
-					prog.MarkSkipped(p.URL)
+					prog.MarkSkipped(p.URL, "Already approved on GitHub")
 				}
 				return
 			}
@@ -137,7 +163,7 @@ func Discover(ctx context.Context, db *sql.DB, cfg Config, trigger string, now t
 				case outcomeReviewed:
 					prog.MarkDone(p.URL, findings)
 				case outcomeSkipped:
-					prog.MarkSkipped(p.URL)
+					prog.MarkSkipped(p.URL, "Already reviewed at this revision")
 				case outcomeFailed:
 					message := "review failed"
 					if err != nil {
@@ -155,7 +181,7 @@ func Discover(ctx context.Context, db *sql.DB, cfg Config, trigger string, now t
 		for _, p := range prs {
 			seen[p.URL] = true
 		}
-		if n, err := ReconcilePending(ctx, db, login, seen, now); err != nil {
+		if n, err := ReconcilePending(ctx, db, cfg.Review, login, seen, now); err != nil {
 			slog.Warn("reconcile pending reviews", "err", err)
 		} else if n > 0 {
 			slog.Info("reconcile cleared non-actionable prs", "count", n)
@@ -199,10 +225,23 @@ func ReviewOne(ctx context.Context, db *sql.DB, cfg Config, prURL string, now ti
 	if prog != nil {
 		prog.SetQueued([]GHPR{pr})
 	}
-	prID, err := UpsertPR(dbCtx, db, pr, now)
+	decision := decideReview(pr, cfg.Review)
+	prID, err := UpsertPRWithDecision(dbCtx, db, pr, now, decision)
 	if err != nil {
 		_ = FinishRun(dbCtx, db, runID, "error", err.Error(), time.Now())
 		return err
+	}
+	if decision.Action == reviewActionSkip {
+		if _, err := DismissAllPendingReviewsForPR(dbCtx, db, prID); err != nil {
+			_ = FinishRun(dbCtx, db, runID, "error", err.Error(), time.Now())
+			return err
+		}
+		reason := skipReasonLabel(decision.Reason, pr.Author.Login)
+		slog.Info("skip review; review policy", "pr", pr.URL, "reason", decision.Reason, "author", pr.Author.Login)
+		if prog != nil {
+			prog.MarkSkipped(pr.URL, reason)
+		}
+		return FinishRun(dbCtx, db, runID, "success", "", time.Now())
 	}
 
 	if prog != nil {
@@ -214,7 +253,7 @@ func ReviewOne(ctx context.Context, db *sql.DB, cfg Config, prURL string, now ti
 		case outcomeReviewed:
 			prog.MarkDone(pr.URL, findings)
 		case outcomeSkipped:
-			prog.MarkSkipped(pr.URL)
+			prog.MarkSkipped(pr.URL, "Already reviewed at this revision")
 		case outcomeFailed:
 			message := "review failed"
 			if err != nil {
@@ -366,24 +405,29 @@ func resolveFindingLines(ctx context.Context, sr *StructuredReview, prURL string
 // this run (they're open) so they're skipped; pass nil to re-check every
 // pending PR (the manual sweep). Returns the number of PRs cleared.
 // Best-effort: per-PR failures are logged and skipped, not fatal.
-func ReconcilePending(ctx context.Context, db *sql.DB, login string, seen map[string]bool, now time.Time) (int, error) {
+func ReconcilePending(ctx context.Context, db *sql.DB, reviewCfg ReviewConfig, login string, seen map[string]bool, now time.Time) (int, error) {
 	dbCtx := context.WithoutCancel(ctx)
 	rows, err := db.QueryContext(dbCtx, `
-		SELECT DISTINCT p.id, p.url FROM prs p
-		JOIN reviews r ON r.pr_id = p.id
-		WHERE r.state='pending'
+		SELECT p.id, p.url,
+		       EXISTS(SELECT 1 FROM reviews r WHERE r.pr_id=p.id AND r.state='pending'),
+		       p.review_action='skip'
+		FROM prs p
+		WHERE EXISTS(SELECT 1 FROM reviews r WHERE r.pr_id=p.id AND r.state='pending')
+		   OR (p.state='OPEN' AND p.review_action='skip')
 	`)
 	if err != nil {
 		return 0, fmt.Errorf("list pending prs: %w", err)
 	}
 	type pendingPR struct {
-		id  int64
-		url string
+		id         int64
+		url        string
+		hasPending bool
+		wasSkipped bool
 	}
 	var candidates []pendingPR
 	for rows.Next() {
 		var pr pendingPR
-		if err := rows.Scan(&pr.id, &pr.url); err != nil {
+		if err := rows.Scan(&pr.id, &pr.url, &pr.hasPending, &pr.wasSkipped); err != nil {
 			rows.Close()
 			return 0, fmt.Errorf("scan pending pr: %w", err)
 		}
@@ -404,12 +448,16 @@ func ReconcilePending(ctx context.Context, db *sql.DB, login string, seen map[st
 			continue
 		}
 		// Refresh stored state either way so the dashboard badge is accurate.
-		if _, err := UpsertPR(dbCtx, db, live, now); err != nil {
+		decision := decideReview(live, reviewCfg)
+		if _, err := UpsertPRWithDecision(dbCtx, db, live, now, decision); err != nil {
 			slog.Warn("reconcile: upsert pr", "url", pr.url, "err", err)
 		}
 		done := live.State == "MERGED" || live.State == "CLOSED" ||
-			(login != "" && live.MyLatestReviewState(login) == "APPROVED")
+			(pr.hasPending && login != "" && live.MyLatestReviewState(login) == "APPROVED")
 		if !done {
+			if pr.wasSkipped && decision.Action != reviewActionSkip {
+				cleared++
+			}
 			continue
 		}
 		n, err := DismissAllPendingReviewsForPR(dbCtx, db, pr.id)
@@ -417,7 +465,7 @@ func ReconcilePending(ctx context.Context, db *sql.DB, login string, seen map[st
 			slog.Warn("reconcile: dismiss pr", "url", pr.url, "err", err)
 			continue
 		}
-		if n > 0 {
+		if n > 0 || pr.wasSkipped {
 			cleared++
 			slog.Info("reconcile: cleared non-actionable pr", "url", pr.url, "state", live.State, "dismissed", n)
 		}

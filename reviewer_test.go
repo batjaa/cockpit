@@ -84,6 +84,99 @@ func ghFixtureFor(sha string) string {
 	)
 }
 
+func TestE2E_DiscoverSkipsConfiguredAuthor(t *testing.T) {
+	dir := t.TempDir()
+	ghFixture := `[{
+		"number":101,
+		"title":"Bump example from 1.0 to 1.1",
+		"url":"https://github.com/o/r/pull/101",
+		"headRefOid":"bot-sha",
+		"author":{"login":"app/dependabot"},
+		"state":"OPEN"
+	}]`
+	writeStubs(t, dir, ghFixture, "")
+	invocations := filepath.Join(t.TempDir(), "claude-invocations")
+	claudeScript := fmt.Sprintf("#!/bin/sh\necho run >> %s\nexit 1\n", invocations)
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(claudeScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	cfg := Config{
+		Search: "repo:o/r is:pr",
+		Review: ReviewConfig{SkipAuthors: []string{"app/dependabot"}},
+		Claude: ClaudeConfig{Binary: "claude", TimeoutSeconds: 30},
+	}
+	prog := NewRunProgress()
+	if err := Discover(context.Background(), db, cfg, "manual", time.Now(), prog); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(invocations); !os.IsNotExist(err) {
+		t.Fatalf("Claude was invoked for skipped PR; stat err=%v", err)
+	}
+	if got := countReviews(t, db, ""); got != 0 {
+		t.Errorf("reviews=%d want 0", got)
+	}
+	var action, reason string
+	if err := db.QueryRow(`SELECT review_action, review_skip_reason FROM prs WHERE number=101`).Scan(&action, &reason); err != nil {
+		t.Fatal(err)
+	}
+	if action != "skip" || reason != skipReasonExcludedAuthor {
+		t.Errorf("persisted decision=%q/%q want skip/%s", action, reason, skipReasonExcludedAuthor)
+	}
+	skipped, err := ListSkippedPRs(context.Background(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(skipped) != 1 || skipped[0].Number != 101 {
+		t.Errorf("skipped list=%+v", skipped)
+	}
+	items := prog.Snapshot()
+	if len(items) != 1 || items[0].State != prSkipped || items[0].Reason != "Dependabot-authored PR" {
+		t.Errorf("progress=%+v", items)
+	}
+}
+
+func TestE2E_ReviewOneSkipsConfiguredAuthor(t *testing.T) {
+	dir := t.TempDir()
+	prJSON := `{"number":101,"title":"Bump dependency","url":"https://github.com/o/r/pull/101","headRefOid":"bot-sha","author":{"login":"app/dependabot"},"state":"OPEN"}`
+	ghScript := fmt.Sprintf("#!/bin/sh\ncat <<'JSON_EOF'\n%s\nJSON_EOF\n", prJSON)
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(ghScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	invocations := filepath.Join(t.TempDir(), "claude-invocations")
+	claudeScript := fmt.Sprintf("#!/bin/sh\necho run >> %s\nexit 1\n", invocations)
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(claudeScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	cfg := Config{
+		Review: ReviewConfig{SkipAuthors: []string{"app/dependabot"}},
+		Claude: ClaudeConfig{Binary: "claude", TimeoutSeconds: 30},
+	}
+	if err := ReviewOne(context.Background(), db, cfg, "https://github.com/o/r/pull/101", time.Now(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(invocations); !os.IsNotExist(err) {
+		t.Fatalf("Claude was invoked for manually submitted skipped PR; stat err=%v", err)
+	}
+	if got := countReviews(t, db, ""); got != 0 {
+		t.Errorf("reviews=%d want 0", got)
+	}
+}
+
 // TestE2E_DiscoverDecisionLogic exercises the full reviewer pipeline
 // across three phases:
 //

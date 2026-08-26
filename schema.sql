@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS prs (
   author     TEXT NOT NULL,
   head_sha   TEXT NOT NULL,
   state      TEXT NOT NULL DEFAULT 'OPEN',
+  review_action TEXT NOT NULL DEFAULT 'review', -- review | skip
+  review_skip_reason TEXT NOT NULL DEFAULT '',  -- stable policy reason code
   pr_created_at DATETIME, -- PR opened time (GitHub); null until first scanned
   pr_updated_at DATETIME, -- PR last-activity time (GitHub)
   first_seen DATETIME NOT NULL,

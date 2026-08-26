@@ -12,6 +12,14 @@ import (
 // first_seen is preserved across updates; last_seen, title, url, author,
 // head_sha are refreshed.
 func UpsertPR(ctx context.Context, db *sql.DB, p GHPR, now time.Time) (int64, error) {
+	return UpsertPRWithDecision(ctx, db, p, now, reviewDecision{Action: reviewActionReview})
+}
+
+// UpsertPRWithDecision persists the PR and the current review-policy result in
+// one statement. Keeping the decision on the PR (rather than inventing an
+// empty review row) lets skipped PRs remain visible without conflating policy
+// with review lifecycle state.
+func UpsertPRWithDecision(ctx context.Context, db *sql.DB, p GHPR, now time.Time, decision reviewDecision) (int64, error) {
 	owner, repo, number, err := ParseRepo(p.URL)
 	if err != nil {
 		return 0, err
@@ -30,18 +38,21 @@ func UpsertPR(ctx context.Context, db *sql.DB, p GHPR, now time.Time) (int64, er
 		prUpdated = dbTime(p.UpdatedAt)
 	}
 	_, err = db.ExecContext(ctx, `
-		INSERT INTO prs (owner, repo, number, url, title, author, head_sha, state, pr_created_at, pr_updated_at, first_seen, last_seen)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO prs (owner, repo, number, url, title, author, head_sha, state, review_action, review_skip_reason, pr_created_at, pr_updated_at, first_seen, last_seen)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(owner, repo, number) DO UPDATE SET
 			title         = excluded.title,
 			url           = excluded.url,
 			author        = excluded.author,
 			head_sha      = excluded.head_sha,
 			state         = excluded.state,
+			review_action = excluded.review_action,
+			review_skip_reason = excluded.review_skip_reason,
 			pr_created_at = COALESCE(excluded.pr_created_at, prs.pr_created_at),
 			pr_updated_at = COALESCE(excluded.pr_updated_at, prs.pr_updated_at),
 			last_seen     = excluded.last_seen
-	`, owner, repo, number, p.URL, p.Title, p.Author.Login, p.HeadRefOid, state, prCreated, prUpdated, dbTime(now), dbTime(now))
+	`, owner, repo, number, p.URL, p.Title, p.Author.Login, p.HeadRefOid, state,
+		decision.Action, decision.Reason, prCreated, prUpdated, dbTime(now), dbTime(now))
 	if err != nil {
 		return 0, err
 	}
@@ -50,6 +61,69 @@ func UpsertPR(ctx context.Context, db *sql.DB, p GHPR, now time.Time) (int64, er
 		`SELECT id FROM prs WHERE owner=? AND repo=? AND number=?`,
 		owner, repo, number).Scan(&id)
 	return id, err
+}
+
+// RefreshStoredReviewDecisions reapplies the current policy to already-known
+// PRs. This makes config changes effective on process restart without forcing
+// a GitHub discovery (and potentially spending unrelated LLM reviews).
+// Pending reviews that have become ineligible are dismissed transactionally.
+func RefreshStoredReviewDecisions(ctx context.Context, db *sql.DB, cfg ReviewConfig) (int, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, author, review_action, review_skip_reason FROM prs
+	`)
+	if err != nil {
+		return 0, fmt.Errorf("list stored review decisions: %w", err)
+	}
+	type storedPR struct {
+		id             int64
+		author         string
+		action, reason string
+	}
+	var prs []storedPR
+	for rows.Next() {
+		var p storedPR
+		if err := rows.Scan(&p.id, &p.author, &p.action, &p.reason); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("scan stored review decision: %w", err)
+		}
+		prs = append(prs, p)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin review policy refresh: %w", err)
+	}
+	defer tx.Rollback()
+	changed := 0
+	for _, p := range prs {
+		decision := decideReview(GHPR{Author: GHAuthor{Login: p.author}}, cfg)
+		if p.action == string(decision.Action) && p.reason == decision.Reason {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE prs SET review_action=?, review_skip_reason=? WHERE id=?
+		`, decision.Action, decision.Reason, p.id); err != nil {
+			return 0, fmt.Errorf("update stored review decision: %w", err)
+		}
+		if decision.Action == reviewActionSkip {
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE reviews SET state='dismissed' WHERE pr_id=? AND state='pending'
+			`, p.id); err != nil {
+				return 0, fmt.Errorf("dismiss newly skipped review: %w", err)
+			}
+		}
+		changed++
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit review policy refresh: %w", err)
+	}
+	return changed, nil
 }
 
 // InsertRun creates a runs row with status='running' and returns its id.
@@ -263,6 +337,53 @@ type DashboardReview struct {
 	Minors      int
 	Nits        int
 	Selected    int // comments currently selected for posting
+}
+
+// SkippedPR is a discovered open PR excluded by the review policy. It has no
+// review row because no LLM work was performed.
+type SkippedPR struct {
+	PRID        int64
+	Owner       string
+	Repo        string
+	Number      int
+	Title       string
+	Author      string
+	URL         string
+	HeadSHA     string
+	Reason      string
+	LastSeen    time.Time
+	PRCreatedAt sql.NullTime
+	PRUpdatedAt sql.NullTime
+}
+
+// ListSkippedPRs returns open PRs whose current policy decision is skip.
+// Closed/merged PRs are deliberately absent; reconciliation refreshes their
+// state after they disappear from an open-only GitHub search.
+func ListSkippedPRs(ctx context.Context, db *sql.DB) ([]SkippedPR, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, owner, repo, number, title, author, url, head_sha,
+		       review_skip_reason, last_seen, pr_created_at, pr_updated_at
+		FROM prs
+		WHERE state='OPEN' AND review_action='skip'
+		ORDER BY last_seen DESC, id DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list skipped prs: %w", err)
+	}
+	defer rows.Close()
+
+	var out []SkippedPR
+	for rows.Next() {
+		var p SkippedPR
+		if err := rows.Scan(
+			&p.PRID, &p.Owner, &p.Repo, &p.Number, &p.Title, &p.Author,
+			&p.URL, &p.HeadSHA, &p.Reason, &p.LastSeen, &p.PRCreatedAt, &p.PRUpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan skipped pr: %w", err)
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }
 
 // ListPendingReviews returns every review currently in 'pending' state

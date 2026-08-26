@@ -149,6 +149,10 @@ prompted values).
     "timeout_seconds": 600,
     "concurrency": 3
   },
+  "review": {
+    "skip_authors": ["app/dependabot", "dependabot[bot]"],
+    "exclude_paths": ["*.pb.go", "vendor/", "go.sum"]
+  },
   "http": {
     "addr": "127.0.0.1:8765"
   }
@@ -163,6 +167,9 @@ Notes:
   local time. `interval_hours` is the gap between ticks within the window.
 - `run_on_launch=true` triggers one run immediately at startup regardless of
   the window.
+- `review.skip_authors` is a case-insensitive list of GitHub logins. Matching
+  PRs are persisted and listed as skipped without invoking the reviewer. The
+  default covers Dependabot; an explicit empty list disables the rule.
 - CLI flags `--config <path>` and `--addr <host:port>` override.
 
 ---
@@ -188,6 +195,9 @@ CREATE TABLE prs (
   title       TEXT NOT NULL,
   author      TEXT NOT NULL,
   head_sha    TEXT NOT NULL,
+  state       TEXT NOT NULL DEFAULT 'OPEN',
+  review_action TEXT NOT NULL DEFAULT 'review',
+  review_skip_reason TEXT NOT NULL DEFAULT '',
   first_seen  DATETIME NOT NULL,
   last_seen   DATETIME NOT NULL,
   UNIQUE(owner, repo, number)
@@ -278,12 +288,15 @@ gh pr list --search "<config.search>" --limit 50 \
 ```
 
 Map each result to a `prs` row (upsert by `(owner, repo, number)`). Refresh
-`head_sha` and `last_seen`.
+`head_sha`, `last_seen`, and the current review-policy decision.
 
 ### 2. Decide which to review
 
 For each PR in the result set:
 
+- Apply the centralized review policy first. When it returns `skip`, persist
+  its stable reason code, dismiss any older pending review for the PR, list it
+  in the dashboard's Skipped section, and do not invoke Claude.
 - If no existing review for `(pr_id, head_sha)`, queue it.
 - If a `pending` review exists for an older `head_sha`, mark it `dismissed`
   (force-push invalidated the line anchors) and queue a fresh review.
@@ -400,6 +413,8 @@ Server-rendered. Two templates: `dashboard.tmpl`, `pr_detail.tmpl`,
   + "Review a PR" URL input
 - Table of PRs with `pending` reviews:
   `Title | Author | 🔴 / 🟠 / 🟡 / nit counts | Age | [Review →]`
+- A muted Skipped section lists policy-excluded PRs and the reason; these rows
+  intentionally have no review detail because no LLM review exists.
 - Below: collapsed "Recently posted" and "Dismissed" sections
 
 ### `/pr/{id}`

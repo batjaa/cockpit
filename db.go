@@ -54,6 +54,8 @@ func OpenDB(path string) (*sql.DB, error) {
 	// EXISTS schema — apply them here, tolerating "duplicate column".
 	migrations := []string{
 		`ALTER TABLE prs ADD COLUMN state TEXT NOT NULL DEFAULT 'OPEN'`,
+		`ALTER TABLE prs ADD COLUMN review_action TEXT NOT NULL DEFAULT 'review'`,
+		`ALTER TABLE prs ADD COLUMN review_skip_reason TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN branch TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE prs ADD COLUMN pr_created_at DATETIME`,
 		`ALTER TABLE prs ADD COLUMN pr_updated_at DATETIME`,

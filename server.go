@@ -142,6 +142,11 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "list pending reviews", err)
 		return
 	}
+	skippedPRs, err := ListSkippedPRs(r.Context(), s.db)
+	if err != nil {
+		s.serverError(w, "list skipped prs", err)
+		return
+	}
 
 	pendingComments, err := ListPendingComments(r.Context(), s.db)
 	if err != nil {
@@ -207,6 +212,27 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	type skippedRow struct {
+		SkippedPR
+		ReasonLabel string
+		SeenAge     string
+		OpenedAge   string
+		UpdatedAge  string
+	}
+	skipped := make([]skippedRow, len(skippedPRs))
+	for i, pr := range skippedPRs {
+		skipped[i] = skippedRow{
+			SkippedPR:   pr,
+			ReasonLabel: skipReasonLabel(pr.Reason, pr.Author),
+			SeenAge:     humanizeAge(time.Since(pr.LastSeen)),
+		}
+		if pr.PRCreatedAt.Valid {
+			skipped[i].OpenedAge = humanizeAge(time.Since(pr.PRCreatedAt.Time))
+		}
+		if pr.PRUpdatedAt.Valid {
+			skipped[i].UpdatedAge = humanizeAge(time.Since(pr.PRUpdatedAt.Time))
+		}
+	}
 
 	type lastRunView struct {
 		Status      string
@@ -252,6 +278,7 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	s.render(w, dashboardTmpl, map[string]any{
 		"Title":         "Pending reviews",
 		"Reviews":       rows,
+		"Skipped":       skipped,
 		"LastRun":       lastRun,
 		"Running":       s.isRunning(),
 		"SearchEmpty":   s.cfg.Search == "",
@@ -345,7 +372,7 @@ func (s *server) handleReconcile(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("reconcile: resolve gh login; approved-PR clearing disabled", "err", err)
 		login = ""
 	}
-	cleared, err := ReconcilePending(r.Context(), s.db, login, nil, time.Now())
+	cleared, err := ReconcilePending(r.Context(), s.db, s.cfg.Review, login, nil, time.Now())
 	if err != nil {
 		s.serverError(w, "reconcile", err)
 		return

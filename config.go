@@ -19,6 +19,12 @@ type Config struct {
 
 // ReviewConfig controls what gets reviewed.
 type ReviewConfig struct {
+	// SkipAuthors prevents review generation for matching GitHub author
+	// logins while keeping the PR visible on the dashboard. Matching is
+	// case-insensitive. nil gets defaultSkipAuthors; an explicit empty list
+	// disables author-based skipping.
+	SkipAuthors []string `json:"skip_authors"`
+
 	// ExcludePaths drops findings on matching paths before a review is
 	// persisted — generated code, lockfiles, vendored deps. The review
 	// skill is instructed to skip generated files too; this filter is the
@@ -89,6 +95,7 @@ func DefaultConfig() Config {
 			Skill:          defaultSkillName,
 		},
 		Review: ReviewConfig{
+			SkipAuthors:  defaultSkipAuthors(),
 			ExcludePaths: defaultExcludePaths(),
 		},
 		HTTP: HTTPConfig{
@@ -149,6 +156,11 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Claude.Skill == "" {
 		c.Claude.Skill = defaultSkillName
+	}
+	// nil means the field was absent from the config file; an explicit
+	// empty list means the user turned author skipping off.
+	if c.Review.SkipAuthors == nil {
+		c.Review.SkipAuthors = defaultSkipAuthors()
 	}
 	// nil means the field was absent from the config file; an explicit
 	// empty list means the user turned exclusion off.

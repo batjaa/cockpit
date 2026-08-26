@@ -4,6 +4,10 @@
     <h1 class="text-2xl font-semibold">Pending reviews</h1>
     <div class="text-xs text-zinc-500 mono mt-1 flex items-center gap-1.5 flex-wrap">
       <span>{{len .Reviews}} pending</span>
+      {{if .Skipped}}
+      <span class="text-zinc-300">·</span>
+      <span>{{len .Skipped}} skipped</span>
+      {{end}}
       {{with .Stats}}
       <span class="text-zinc-300">·</span>
       <span title="all-time">🏆 {{.PRsReviewed}} PRs reviewed · {{.ReviewsPosted}} posted · {{.CommentsPosted}} comments shipped</span>
@@ -160,6 +164,46 @@
 </div>
 {{end}}
 
+{{if .Skipped}}
+<section class="mt-10">
+  <div class="flex items-baseline justify-between gap-4 mb-3">
+    <div>
+      <h2 class="text-sm font-semibold text-zinc-700">Skipped</h2>
+      <p class="text-xs text-zinc-400 mt-0.5">Listed for visibility; no automated review was generated.</p>
+    </div>
+    <span class="mono text-xs text-zinc-400">{{len .Skipped}} PR{{if ne (len .Skipped) 1}}s{{end}}</span>
+  </div>
+  <div class="bg-white rounded-lg border border-zinc-200 divide-y divide-zinc-100">
+    {{range .Skipped}}
+    <div class="px-5 py-3.5 flex items-start justify-between gap-4">
+      <div class="min-w-0 flex-1">
+        <div class="text-xs text-zinc-400 mono">
+          <a href="{{.URL}}" target="_blank" rel="noopener" class="hover:text-zinc-700 hover:underline">{{.Owner}}/{{.Repo}} #{{.Number}}</a>
+        </div>
+        <div class="font-medium text-zinc-700 truncate mt-0.5">{{.Title}}</div>
+        <div class="text-sm text-zinc-400 mt-1">
+          {{.Author}}
+          {{if .OpenedAge}}
+          <span class="text-zinc-300">·</span>
+          opened {{.OpenedAge}}
+          {{end}}
+          {{if .UpdatedAge}}
+          <span class="text-zinc-300">·</span>
+          updated {{.UpdatedAge}}
+          {{end}}
+          {{if and (not .OpenedAge) (not .UpdatedAge)}}
+          <span class="text-zinc-300">·</span>
+          seen {{.SeenAge}}
+          {{end}}
+        </div>
+      </div>
+      <span class="shrink-0 mono text-xs rounded bg-zinc-100 text-zinc-500 px-2 py-1" title="No LLM review was generated">skipped · {{.ReasonLabel}}</span>
+    </div>
+    {{end}}
+  </div>
+</section>
+{{end}}
+
 <script>
 (function() {
   const btn = document.getElementById('run-now');
@@ -283,7 +327,7 @@
       case 'done':
         return `<span class="mono text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded">✓ ${it.findings} finding${it.findings === 1 ? '' : 's'}</span>`;
       case 'skipped':
-        return '<span class="mono text-xs bg-zinc-100 text-zinc-400 px-2 py-1 rounded">unchanged</span>';
+        return '<span class="mono text-xs bg-zinc-100 text-zinc-500 px-2 py-1 rounded">skipped</span>';
       case 'failed':
         return '<span class="mono text-xs bg-red-100 text-red-700 px-2 py-1 rounded">failed</span>';
       default:
@@ -309,6 +353,7 @@
             ${it.title ? `<span class="text-sm text-zinc-900 ${it.owner ? 'ml-1.5' : ''}">${esc(it.title)}</span>` : ''}
           </div>
           ${it.error ? `<div class="mt-1 text-xs text-red-700">${esc(it.error)}</div>` : ''}
+          ${it.reason ? `<div class="mt-1 text-xs text-zinc-500">${esc(it.reason)}</div>` : ''}
         </div>
         <div class="shrink-0">${badge(it)}</div>
       </div>`).join('');

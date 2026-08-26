@@ -76,6 +76,11 @@ func main() {
 		fail("open db", err)
 	}
 	defer db.Close()
+	if n, err := RefreshStoredReviewDecisions(context.Background(), db, cfg.Review); err != nil {
+		fail("apply review policy", err)
+	} else if n > 0 {
+		slog.Info("refreshed stored review policy decisions", "count", n)
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
