@@ -324,8 +324,7 @@ For each PR in the result set:
 
 ```bash
 claude -p --output-format text \
-  --permission-mode acceptEdits \
-  --max-turns 30 \
+  --permission-mode bypassPermissions \
   "/pr-review-structured <PR_URL>"
 ```
 
@@ -337,7 +336,10 @@ schema struct.
 Parse failure or `{"error": "..."}` payload → mark the review `failed`,
 store raw output for debugging, continue to the next PR.
 
-Per-PR timeout from config. PRs reviewed by a worker pool of
+No fixed `--max-turns` value is passed: the former 30-turn ceiling was a
+per-invocation limit, not a daily quota, and prematurely stopped complex
+reviews. The per-PR timeout from config remains the execution bound. PRs
+reviewed by a worker pool of
 `claude.concurrency` (default 3) within a run.
 
 ### 4. Persist
@@ -359,8 +361,9 @@ In-process. On startup:
    `now + interval_hours`. If outside the window, schedules the next tick at
    the next window opening.
 
-Only one run executes at a time — guarded by a `sync.Mutex`. If a tick fires
-while a run is in progress, it logs and skips.
+Only one outer run job executes at a time through the shared serial worker.
+Discovery jobs coalesce; a scheduled tick during a manual review queues behind
+it, while a tick during an active or queued discovery is skipped as redundant.
 
 ---
 
@@ -374,6 +377,7 @@ Binds `127.0.0.1` (config). Routes:
 | GET    | `/pr/{id}`            | Latest review for PR: comments + submit form       |
 | POST   | `/pr/{id}/submit`     | Post selected comments as a GitHub review          |
 | POST   | `/review`             | Manual review: body `{url: "..."}` → kick off run  |
+| POST   | `/runs/{id}/retry-failed` | Requeue failed PR reviews from a historical run |
 | GET    | `/runs`               | Run history + errors                               |
 | POST   | `/run-now`            | Trigger a `trigger='schedule'` run immediately     |
 | GET    | `/healthz`            | `200 ok`                                           |
@@ -386,9 +390,10 @@ Behavior:
 
 1. Normalize (strip query/fragment/suffix paths) and parse
    owner/repo/number. 400 if malformed — before a run slot is consumed.
-2. Reserve the shared single-run guard (409 if a run is in progress).
-3. Kick off ReviewOne in a goroutine (gh pr view → upsert → review
-   pipeline), return `202 Accepted`. Same-SHA caching applies: an
+2. Enqueue the URL on the shared serial run worker. If another discovery or
+   manual review is active, the retry waits behind it; duplicate URLs coalesce.
+3. Run ReviewOne (gh pr view → upsert → review pipeline), returning
+   `202 Accepted` from the enqueue action. Same-SHA caching applies: an
    existing pending/posted review at the current head is served from
    the DB instead of spending an LLM run.
 4. UI: URL input + "Review" button on `/`, next to Run now. Works even
@@ -396,6 +401,10 @@ Behavior:
    "Current run" dashboard section as discover runs (instead of the
    originally-specced redirect-and-poll detail page), and the page
    reloads when the run finishes.
+
+Failed reviews are excluded from same-SHA caching. The dashboard error banner
+queries failed rows from that run and posts to `/runs/{id}/retry-failed`, which
+enqueues each affected PR through this same manual-review path.
 
 Submit endpoint: body `{event: "APPROVE"|"REQUEST_CHANGES"|"COMMENT", selected: [comment_id, ...]}`.
 

@@ -154,10 +154,12 @@ cockpit version                    # print the build version
 Override the config path: `--config /some/path.json`.
 
 The server also accepts a "Run now" button on the dashboard that triggers
-the same flow as `--run-once`, with status polling and an in-memory guard
-against concurrent runs. Next to it, a URL input reviews any single PR on
+the same flow as `--run-once`, with status polling and a serial in-memory
+queue. Next to it, a URL input reviews any single PR on
 demand (`POST /review`) — independent of the search filter, so it works
-even with an empty `search` config.
+even with an empty `search` config. Failed review banners include a
+**Retry failed** action that requeues the affected PRs through the same serial
+worker; failed rows never block a same-SHA retry.
 
 Reviews are cached by head SHA: if a PR already has a pending or posted
 review at its current head, both discovery and manual reviews serve the
@@ -201,6 +203,12 @@ events. See the [GitHub review API](https://docs.github.com/en/rest/pulls/review
 
 Reviews take 2–5 minutes per PR and run `claude.concurrency` at a time
 (default 3).
+
+Cockpit does not pass Claude's optional `--max-turns` flag. The old hard-coded
+value of 30 was a per-invocation agent-turn ceiling—not a daily quota—and could
+stop complex reviews prematurely. Reviews remain bounded by
+`claude.timeout_seconds` (default 600 seconds). See Anthropic's
+[`--max-turns` CLI documentation](https://docs.anthropic.com/en/docs/claude-code/cli-usage).
 
 Cockpit defaults to Claude Sonnet for reviews, independently of the model
 configured for interactive Claude Code sessions. Set `claude.model` to a
