@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -35,9 +36,33 @@ func seedReview(t *testing.T, db *sql.DB) int64 {
 	}
 
 	sr := &StructuredReview{
-		PR:      StructuredReviewPR{HeadSHA: "abc1234"},
-		Summary: "Generally fine.",
-		Verdict: "approve-with-suggestions",
+		PR: StructuredReviewPR{HeadSHA: "abc1234"},
+		ReviewBrief: StructuredReviewBrief{
+			Change: StructuredReviewChange{
+				Intent:    "Keep empty jobs from entering the worker loop.",
+				Mechanism: "Adds a guard at the service boundary before dispatch.",
+			},
+			RiskLevel:     "medium",
+			RiskRationale: "The guard is local, but the worker handles every queued job.",
+			ComplexAreas: []StructuredReviewComplexArea{
+				{Area: "Worker dispatch", Why: "It combines queue state with retry behavior."},
+			},
+			BoundaryChanges: []StructuredReviewBoundary{
+				{Boundary: "Service to queue", Impact: "Every job payload crosses this contract."},
+			},
+			BlastRadius: "A regression can stall all queued jobs.",
+			Validation: StructuredReviewValidation{
+				Coverage: "Unit tests cover the empty and populated paths.",
+				Gaps:     []string{"No retry integration test."},
+			},
+			Uncertainties:  []string{"Production queue age is unknown."},
+			Recommendation: "Verify retry behavior before approving.",
+			HighLevelConcerns: []StructuredReviewConcern{
+				{Concern: "Retry behavior crosses the queue boundary.", Why: "A local failure can block unrelated jobs."},
+			},
+		},
+		AuthorMessage: "Could you add coverage for retries across the queue boundary?",
+		Verdict:       "approve-with-suggestions",
 		Findings: []StructuredReviewFinding{
 			{ID: "M1", Severity: "major", Path: "a.go", Line: 10, Body: "**issue (blocking):** Off-by-one."},
 			{ID: "n1", Severity: "nit", Path: "b.go", Line: 20, Body: "**nitpick (non-blocking):** name shadowing."},
@@ -106,10 +131,13 @@ func TestServer_DashboardWithReview(t *testing.T) {
 	body := w.Body.String()
 	for _, want := range []string{
 		"octo/repo #42", "Add foo to bar", "octocat", "🟠 1", "nit 1",
+		"Private review brief", "medium risk", "Keep empty jobs from entering the worker loop.",
+		"Blast radius:", "A regression can stall all queued jobs.",
 		// PR number links to GitHub in a new tab
 		`href="https://github.com/octo/repo/pull/42" target="_blank"`,
-		// quick actions: dismiss button + approve popover with editable summary
-		`class="dismiss-cta`, `class="approve-confirm`, `class="approve-summary`, `data-pr="#42"`,
+		// quick actions: dismiss button + approve popover with the author message
+		`class="dismiss-cta`, `class="approve-confirm`, `class="approve-author-message`, `data-pr="#42"`,
+		"Could you add coverage for retries across the queue boundary?",
 		// severity badges open per-severity popovers with selectable rows
 		`class="comment-toggle`, "a.go:10", "Off-by-one",
 		"Major — check to include", "Nit — check to include",
@@ -120,6 +148,73 @@ func TestServer_DashboardWithReview(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in dashboard body", want)
 		}
+	}
+}
+
+func TestServer_NoConcernRequiresExplicitAuthorMessage(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	reviewID := seedReview(t, db)
+
+	detail, err := GetReviewDetail(context.Background(), db, reviewID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail.ReviewBrief.HighLevelConcerns = nil
+	briefJSON, err := json.Marshal(detail.ReviewBrief)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE reviews SET review_brief=?, author_message='' WHERE id=?`, briefJSON, reviewID); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &server{db: db}
+	mux := http.NewServeMux()
+	s.routes(mux)
+	for _, path := range []string{"/", "/pr/" + intToStr(reviewID)} {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET %s status=%d body=%s", path, w.Code, w.Body.String())
+		}
+		body := w.Body.String()
+		if !strings.Contains(body, "message was generated") || !strings.Contains(body, "Add") {
+			t.Errorf("GET %s did not explain the absent author message: %s", path, body)
+		}
+	}
+}
+
+func TestServer_EditStructuredAuthorMessage(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	reviewID := seedReview(t, db)
+
+	s := &server{db: db}
+	mux := http.NewServeMux()
+	s.routes(mux)
+	req := httptest.NewRequest("PATCH", "/reviews/"+intToStr(reviewID),
+		strings.NewReader(`{"author_message":"Please verify the deployment boundary."}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	var summary, message string
+	if err := db.QueryRow(`SELECT COALESCE(summary,''), author_message FROM reviews WHERE id=?`, reviewID).
+		Scan(&summary, &message); err != nil {
+		t.Fatal(err)
+	}
+	if summary != "" || message != "Please verify the deployment boundary." {
+		t.Errorf("private/public storage crossed: summary=%q author_message=%q", summary, message)
 	}
 }
 
@@ -179,7 +274,13 @@ func TestServer_DetailPage(t *testing.T) {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 	body := w.Body.String()
-	for _, want := range []string{"Add foo to bar", "a.go:10", "Off-by-one", "b.go:20", "Generally fine", "abc1234"[:7]} {
+	for _, want := range []string{
+		"Add foo to bar", "a.go:10", "Off-by-one", "b.go:20", "abc1234"[:7],
+		"Private review brief", "never posted to GitHub", "What changes",
+		"Complex or vulnerable areas", "Cross-boundary dependencies", "Blast radius",
+		"Validation", "Uncertainties", "Recommendation", "High-level concerns",
+		"Could you add coverage for retries across the queue boundary?",
+	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in detail body", want)
 		}
@@ -241,6 +342,11 @@ func TestServer_DetailPageRendersMarkdown(t *testing.T) {
 	}
 	if strings.Contains(body, "<script>alert") {
 		t.Error("raw HTML passed through markdown rendering — XSS")
+	}
+	for _, want := range []string{"Legacy review", "Generated under the old summary contract", "Fine."} {
+		if !strings.Contains(body, want) {
+			t.Errorf("legacy author message missing %q", want)
+		}
 	}
 }
 

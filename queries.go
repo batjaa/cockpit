@@ -687,15 +687,22 @@ func MarkReviewDismissed(ctx context.Context, db *sql.DB, reviewID int64) error 
 	return nil
 }
 
-// UpdateReviewSummary edits the summary of a pending review (the text
-// that posts as the GitHub review body). Returns sql.ErrNoRows when the
-// review is absent or no longer pending — posted/dismissed summaries are
-// a historical record and must not change.
-func UpdateReviewSummary(ctx context.Context, db *sql.DB, reviewID int64, summary string) error {
+// UpdateReviewAuthorMessage edits the author-facing message of a pending
+// review. Structured reviews keep it in author_message; legacy reviews keep
+// using summary so their original public-body semantics remain explicit.
+// Returns sql.ErrNoRows when the review is absent or no longer pending.
+func UpdateReviewAuthorMessage(ctx context.Context, db *sql.DB, reviewID int64, message string) error {
 	res, err := db.ExecContext(ctx,
-		`UPDATE reviews SET summary=? WHERE id=? AND state='pending'`, summary, reviewID)
+		`UPDATE reviews SET
+			author_message = CASE
+				WHEN COALESCE(review_brief, '') != '' THEN ? ELSE author_message
+			END,
+			summary = CASE
+				WHEN COALESCE(review_brief, '') = '' THEN ? ELSE summary
+			END
+		WHERE id=? AND state='pending'`, message, message, reviewID)
 	if err != nil {
-		return fmt.Errorf("update review summary: %w", err)
+		return fmt.Errorf("update review author message: %w", err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {

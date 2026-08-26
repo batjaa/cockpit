@@ -97,6 +97,29 @@
             {{end}}
           </div>
         </a>
+        {{$reviewID := .ReviewID}}
+        {{with .ReviewBrief}}
+        <a href="/pr/{{$reviewID}}" class="block mt-3 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2.5 hover:border-zinc-300">
+          <div class="flex items-center justify-between gap-3">
+            <span class="mono text-[10px] uppercase tracking-wide text-zinc-400">Private review brief</span>
+            <span class="mono text-[10px] rounded px-1.5 py-0.5
+              {{if eq .RiskLevel "high"}}bg-red-100 text-red-700{{else if eq .RiskLevel "medium"}}bg-amber-100 text-amber-700{{else}}bg-emerald-100 text-emerald-700{{end}}">{{.RiskLevel}} risk</span>
+          </div>
+          <div class="mt-1 text-sm font-medium text-zinc-800 leading-snug">{{.Change.Intent}}</div>
+          <div class="mt-1 text-xs text-zinc-500 leading-relaxed">{{.Change.Mechanism}}</div>
+          <div class="mt-2 text-xs text-zinc-600 leading-relaxed"><span class="font-medium text-zinc-700">Blast radius:</span> {{.BlastRadius}}</div>
+          <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 mono text-[10px] text-zinc-400">
+            <span>{{len .ComplexAreas}} complex area{{if ne (len .ComplexAreas) 1}}s{{end}}</span>
+            <span>{{len .BoundaryChanges}} boundar{{if eq (len .BoundaryChanges) 1}}y{{else}}ies{{end}}</span>
+            <span>{{len .Validation.Gaps}} test gap{{if ne (len .Validation.Gaps) 1}}s{{end}}</span>
+            <span class="{{if .HighLevelConcerns}}text-amber-700{{end}}">{{len .HighLevelConcerns}} high-level concern{{if ne (len .HighLevelConcerns) 1}}s{{end}}</span>
+          </div>
+        </a>
+        {{else}}
+        <div class="mt-3 text-xs text-zinc-400 rounded-md border border-dashed border-zinc-200 px-3 py-2">
+          Legacy review · no private structured brief
+        </div>
+        {{end}}
       </div>
       <div class="flex flex-col items-end gap-2 shrink-0">
         <div class="flex items-center gap-1.5 text-xs mono">
@@ -137,9 +160,24 @@
             </button>
             <div class="hidden group-hover/approve:block absolute right-0 bottom-full w-96 z-10 pb-1">
               <div class="bg-white border border-zinc-300 rounded-lg shadow-lg p-3">
-                <div class="text-xs text-zinc-500 uppercase tracking-wide mb-1.5">Summary — posted as the review body</div>
-                <textarea class="approve-summary w-full text-sm text-zinc-900 leading-snug border border-zinc-200 rounded p-2 resize-none focus:outline-none focus:border-zinc-500"
-                          rows="4" data-id="{{.ReviewID}}">{{.Summary}}</textarea>
+                <div class="flex items-center justify-between gap-2 mb-1.5">
+                  <div class="text-xs text-zinc-500 uppercase tracking-wide">Author message — posts to GitHub</div>
+                  {{if .LegacyReview}}<span class="mono text-[10px] rounded bg-amber-100 text-amber-700 px-1.5 py-0.5">legacy</span>{{end}}
+                </div>
+                {{if .LegacyReview}}
+                <div class="text-xs text-amber-700 mb-2">Generated under the old summary contract. Review it before posting.</div>
+                {{end}}
+                {{if or .HasHighLevelConcern .EditableMessage .LegacyReview}}
+                <textarea class="approve-author-message w-full text-sm text-zinc-900 leading-snug border border-zinc-200 rounded p-2 resize-none focus:outline-none focus:border-zinc-500"
+                          rows="4" data-id="{{.ReviewID}}">{{.EditableMessage}}</textarea>
+                {{else}}
+                <div class="author-message-empty rounded border border-dashed border-zinc-200 px-3 py-2 text-xs text-zinc-500">
+                  No high-level concern, so no message was generated.
+                  <button type="button" class="add-author-message block mt-1.5 text-zinc-800 underline decoration-zinc-300 underline-offset-2">Add message anyway</button>
+                </div>
+                <textarea class="approve-author-message hidden w-full text-sm text-zinc-900 leading-snug border border-zinc-200 rounded p-2 resize-none focus:outline-none focus:border-zinc-500"
+                          rows="4" data-id="{{.ReviewID}}" placeholder="Write a top-level message to the author…"></textarea>
+                {{end}}
                 <div class="flex items-center justify-between mt-2">
                   <span class="text-xs text-zinc-500"><span class="selected-count" data-card="{{.ReviewID}}">{{.Selected}}</span> comment(s) selected</span>
                   <button class="approve-confirm mono text-xs px-3 py-1.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40"
@@ -441,12 +479,22 @@
     });
   });
 
-  // Approve popover: editable summary + confirm. The summary saves
-  // first so the submit (which reads from the DB) posts the edited text.
+  document.querySelectorAll('.add-author-message').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const card = btn.closest('[data-card]');
+      card.querySelector('.author-message-empty').classList.add('hidden');
+      const ta = card.querySelector('.approve-author-message');
+      ta.classList.remove('hidden');
+      ta.focus();
+    });
+  });
+
+  // Approve popover: save the optional author message first so submit reads
+  // the latest public text. The private brief has no editing or posting path.
   document.querySelectorAll('.approve-confirm').forEach(btn => {
     btn.addEventListener('click', async () => {
       const card = btn.closest('[data-card]');
-      const ta = card.querySelector('.approve-summary');
+      const ta = card.querySelector('.approve-author-message');
       const errBox = card.querySelector('.approve-error');
       const fail = (msg) => {
         errBox.textContent = msg;
@@ -460,9 +508,9 @@
         const save = await fetch(`/reviews/${btn.dataset.id}`, {
           method: 'PATCH',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({summary: ta.value})
+          body: JSON.stringify({author_message: ta.value})
         });
-        if (!save.ok) return fail('summary save failed: ' + (await save.text()));
+        if (!save.ok) return fail('author message save failed: ' + (await save.text()));
         const res = await fetch(`/pr/${btn.dataset.id}/submit`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},

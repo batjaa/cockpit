@@ -119,7 +119,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /pr/{id}/submit", s.handleSubmit)
 	mux.HandleFunc("POST /pr/{id}/dismiss", s.handleDismiss)
 	mux.HandleFunc("PATCH /comments/{id}", s.handleCommentToggle)
-	mux.HandleFunc("PATCH /reviews/{id}", s.handleSummaryEdit)
+	mux.HandleFunc("PATCH /reviews/{id}", s.handleAuthorMessageEdit)
 	mux.HandleFunc("POST /run-now", s.handleRunNow)
 	mux.HandleFunc("POST /review", s.handleManualReview)
 	mux.HandleFunc("POST /reconcile", s.handleReconcile)
@@ -175,10 +175,13 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	type row struct {
 		DashboardReview
-		Age        string // review age — fallback when PR times are absent
-		OpenedAge  string // PR opened, humanized ("3d")
-		UpdatedAge string // PR last activity, humanized ("2h")
-		Groups     []sevGroup
+		Age                 string // review age — fallback when PR times are absent
+		OpenedAge           string // PR opened, humanized ("3d")
+		UpdatedAge          string // PR last activity, humanized ("2h")
+		Groups              []sevGroup
+		EditableMessage     string
+		LegacyReview        bool
+		HasHighLevelConcern bool
 	}
 	sevOrder := []sevGroup{
 		{Key: "blocker", Icon: "🔴", Label: "Blockers"},
@@ -188,7 +191,17 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	rows := make([]row, len(reviews))
 	for i, rv := range reviews {
-		rows[i] = row{DashboardReview: rv, Age: humanizeAge(time.Since(rv.CreatedAt))}
+		rows[i] = row{
+			DashboardReview: rv,
+			Age:             humanizeAge(time.Since(rv.CreatedAt)),
+			EditableMessage: rv.AuthorMessage,
+			LegacyReview:    rv.ReviewBrief == nil,
+			HasHighLevelConcern: rv.ReviewBrief != nil &&
+				len(rv.ReviewBrief.HighLevelConcerns) > 0,
+		}
+		if rows[i].LegacyReview {
+			rows[i].EditableMessage = rv.Summary
+		}
 		if rv.PRCreatedAt.Valid {
 			rows[i].OpenedAge = humanizeAge(time.Since(rv.PRCreatedAt.Time))
 		}
@@ -451,16 +464,26 @@ func (s *server) handlePRDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.render(w, detailTmpl, map[string]any{
-		"Title":          fmt.Sprintf("%s/%s#%d", d.PR.Owner, d.PR.Repo, d.PR.Number),
-		"ReviewID":       d.ReviewID,
-		"State":          d.State,
-		"PR":             d.PR,
-		"HeadShort":      headShort,
-		"Summary":        d.Summary,
-		"Severities":     severities,
-		"HasAnyComments": len(d.Comments) > 0,
-		"Followups":      d.Followups,
+		"Title":               fmt.Sprintf("%s/%s#%d", d.PR.Owner, d.PR.Repo, d.PR.Number),
+		"ReviewID":            d.ReviewID,
+		"State":               d.State,
+		"PR":                  d.PR,
+		"HeadShort":           headShort,
+		"ReviewBrief":         d.ReviewBrief,
+		"EditableMessage":     effectiveAuthorMessage(d),
+		"LegacyReview":        d.ReviewBrief == nil,
+		"HasHighLevelConcern": d.ReviewBrief != nil && len(d.ReviewBrief.HighLevelConcerns) > 0,
+		"Severities":          severities,
+		"HasAnyComments":      len(d.Comments) > 0,
+		"Followups":           d.Followups,
 	})
+}
+
+func effectiveAuthorMessage(d *ReviewDetail) string {
+	if d.ReviewBrief != nil {
+		return d.AuthorMessage
+	}
+	return d.Summary
 }
 
 var validEvents = map[string]bool{"APPROVE": true, "REQUEST_CHANGES": true, "COMMENT": true}
@@ -625,27 +648,36 @@ func (s *server) handleDismiss(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleSummaryEdit saves an edited review summary. Only pending reviews
-// are editable — the summary is what posts as the review body.
-func (s *server) handleSummaryEdit(w http.ResponseWriter, r *http.Request) {
+// handleAuthorMessageEdit saves the only reviewer-editable text eligible for
+// the top-level GitHub review body. The private review brief is immutable.
+func (s *server) handleAuthorMessageEdit(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		http.Error(w, "bad id", http.StatusBadRequest)
 		return
 	}
 	var body struct {
-		Summary string `json:"summary"`
+		AuthorMessage *string `json:"author_message"`
+		Summary       *string `json:"summary"` // v1 browser/client compatibility
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "bad body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := UpdateReviewSummary(r.Context(), s.db, id, body.Summary); err != nil {
+	message := body.AuthorMessage
+	if message == nil {
+		message = body.Summary
+	}
+	if message == nil {
+		http.Error(w, "author_message is required", http.StatusBadRequest)
+		return
+	}
+	if err := UpdateReviewAuthorMessage(r.Context(), s.db, id, *message); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "review not found or not pending", http.StatusConflict)
 			return
 		}
-		s.serverError(w, "update summary", err)
+		s.serverError(w, "update author message", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
