@@ -321,7 +321,40 @@ breaks parsing.
     "author": "octocat",
     "head_sha": "abc123def4..."
   },
-  "summary": "Nice — scoping the new variant behind the flag and keeping it data-only makes this easy to reason about. I've got one blocking question on the LD key naming, plus a couple of optional suggestions inline.",
+  "review_brief": {
+    "change": {
+      "intent": "Allow callers to select the new processing mode.",
+      "mechanism": "Adds a flag, threads it through the service boundary, and branches in the worker."
+    },
+    "risk_level": "medium",
+    "risk_rationale": "The implementation is small, but it changes the API-to-worker contract used by every job.",
+    "complex_areas": [
+      {
+        "area": "Worker mode selection",
+        "why": "The fallback behavior depends on both the new flag and stored job state."
+      }
+    ],
+    "boundary_changes": [
+      {
+        "boundary": "HTTP API to queued job payload",
+        "impact": "Older queued payloads must continue to deserialize with the default mode."
+      }
+    ],
+    "blast_radius": "A compatibility error affects all jobs created before deployment, not only new-mode requests.",
+    "validation": {
+      "coverage": "Unit tests exercise both modes and the request validator.",
+      "gaps": ["No test covers an old queued payload after deployment."]
+    },
+    "uncertainties": ["Whether production currently has long-lived queued payloads."],
+    "recommendation": "Verify backward-compatible payload decoding before merging.",
+    "high_level_concerns": [
+      {
+        "concern": "Queued payload compatibility is not demonstrated.",
+        "why": "The change crosses a deployment boundary and can break work created by the previous version."
+      }
+    ]
+  },
+  "author_message": "The new field crosses the queued-job deployment boundary, but I couldn't find coverage for payloads written by the previous version. Could you add a compatibility test before merging?",
   "verdict": "approve-with-suggestions",
   "findings": [
     {
@@ -347,36 +380,44 @@ breaks parsing.
 
 Field rules:
 
-- `summary`: **posted verbatim as the top-level body of the GitHub
-  review, under the author's PR.** Write it TO the author in second
-  person ("you"), the way a colleague comments on your PR — react to
-  the change, don't narrate it back. Open with a genuine, specific
-  reaction (fold the strongest positive in), then your overall take on the
-  approach. Stay a level above the inline comments: every specific issue is
-  already posted inline as its own comment, so the summary speaks to the
-  overall approach — design, structure, testing, risk — not a recap of the
-  individual findings. Four failure modes, all of which make it read as
-  notes ABOUT the PR to a third party instead of a message to the person
-  who wrote it:
-    - **Explaining the author's own code back to them.** They wrote it;
-      they know what it does. "the parameter validation on every widget
-      closes off the SQL-injection surface that raw string interpolation
-      would otherwise open" is you proving you understood it. Aim the
-      same point at them: "nice call validating every widget's params —
-      keeps the query-building injection-safe."
-    - **Opening with a graded label.** "This is a clean, well-documented
-      addition", "Clean, focused additive change" — a verdict announced
-      to an audience. Lead with the substance instead.
-    - **Reviewer-log tics.** "I noticed", "the author has", "this PR
-      does X" — rephrase toward "you".
-    - **Rehashing the inline findings.** Each issue is already its own
-      inline comment, so re-listing it in the summary is redundant noise.
-      If several findings share a root cause, name that one theme ("the two
-      notebooks are drifting toward duplication") rather than enumerating
-      the individual spots.
-  It must read like a review comment, not an analysis. The
-  machine-readable assessment lives in `verdict`, so the summary never
-  needs verdict language.
+- `review_brief`: **private reviewer-facing analysis. It is never posted to
+  GitHub.** Optimize it for a personal reviewer deciding what deserves
+  attention in about 15 seconds. Every field shown in the schema is required;
+  emit arrays explicitly even when they are empty.
+  - `change.intent`: the outcome the change is trying to create.
+  - `change.mechanism`: how the implementation creates that outcome.
+  - `risk_level`: one of `"low"`, `"medium"`, or `"high"`.
+  - `risk_rationale`: why that level fits this change, including factors that
+    raise or contain the risk.
+  - `complex_areas`: code or behavior that is unusually vulnerable, subtle,
+    stateful, concurrent, security-sensitive, or hard to reverse. Each entry
+    has a concrete `area` and `why`. Do not list routine changed files merely
+    to fill the array.
+  - `boundary_changes`: dependencies that cross a meaningful boundary, such
+    as API/service, process/queue, data/schema, trust/auth, package/ownership,
+    version/deployment, or external systems. Each entry has `boundary` and
+    `impact`.
+  - `blast_radius`: who or what can be affected if the change is wrong,
+    including indirect consumers and rollback or recovery implications.
+  - `validation.coverage`: what the tests and other evidence demonstrate.
+    `validation.gaps` contains material behaviors that remain unverified.
+  - `uncertainties`: facts the diff and available context could not establish.
+    Separate uncertainty from confirmed findings.
+  - `recommendation`: the next reviewer action, such as approve, inspect a
+    named area, verify a contract, or request a targeted change.
+  - `high_level_concerns`: only actionable concerns that apply across the
+    approach, an architectural or trust boundary, multiple findings, the
+    change's blast radius, or evidence needed to establish safety. Positive
+    feedback, general praise, a recap, verdict language, and a single
+    line-local issue do **not** count as high-level concerns. Each entry has a
+    concise `concern` and its consequential `why`.
+- `author_message`: the only generated top-level prose eligible to be posted
+  to the PR author. Emit `null` when `high_level_concerns` is empty. When
+  concerns exist, emit one concise second-person message that explains the
+  actionable cross-cutting concern and the requested response. Do not add a
+  greeting, praise, a change recap, verdict language, or duplicate inline
+  findings. A non-null message requires at least one high-level concern, and
+  any high-level concern requires a non-null message.
 - `verdict`: one of `"approve"`, `"approve-with-suggestions"`,
   `"request-changes"`. Use `"request-changes"` only when at least one
   blocker exists.

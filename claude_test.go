@@ -93,6 +93,63 @@ const sampleStructuredJSON = `{
     "author": "alice",
     "head_sha": "sha-abc"
   },
+  "review_brief": {
+    "change": {
+      "intent": "Prevent empty input from reaching the processing loop.",
+      "mechanism": "Adds a guard before iterating and keeps the existing processing path unchanged."
+    },
+    "risk_level": "medium",
+    "risk_rationale": "The guard is local, but this path handles every queued item.",
+    "complex_areas": [
+      {"area": "internal/foo processing loop", "why": "It owns empty-input behavior and batch progress."}
+    ],
+    "boundary_changes": [],
+    "blast_radius": "A regression can stop processing for every item in the batch.",
+    "validation": {
+      "coverage": "Unit tests cover empty and populated inputs.",
+      "gaps": []
+    },
+    "uncertainties": [],
+    "recommendation": "Verify the guard preserves metrics, then approve.",
+    "high_level_concerns": [
+      {"concern": "Batch-level failure remains coupled to one item.", "why": "The behavior spans the processing loop rather than one changed line."}
+    ]
+  },
+  "author_message": "The batch still fails as a unit when one item cannot be processed. Could you confirm that failure boundary is intentional?",
+  "verdict": "approve-with-suggestions",
+  "findings": [
+    {
+      "id": "M1",
+      "severity": "major",
+      "perfect": "E",
+      "path": "internal/foo/foo.go",
+      "line": 42,
+      "original_line": 42,
+      "body": "**issue (blocking):** Nil deref on empty input.\n\n**suggestion:** Guard the loop."
+    },
+    {
+      "id": "m1",
+      "severity": "minor",
+      "perfect": "C",
+      "path": "internal/foo/foo.go",
+      "line": 80,
+      "original_line": 78,
+      "body": "**suggestion:** Rename for clarity."
+    }
+  ],
+  "positives": ["Test coverage is solid."]
+}`
+
+const legacyStructuredJSON = `{
+  "pr": {
+    "url": "https://github.com/owner/repo/pull/123",
+    "owner": "owner",
+    "repo": "backend",
+    "number": 123,
+    "title": "Add foo",
+    "author": "alice",
+    "head_sha": "sha-abc"
+  },
   "summary": "Adds foo. Looks reasonable overall.",
   "verdict": "approve-with-suggestions",
   "findings": [
@@ -148,6 +205,72 @@ func TestE2E_RunStructuredReview(t *testing.T) {
 	if len(sr.Positives) != 1 {
 		t.Errorf("positives: %+v", sr.Positives)
 	}
+	if sr.ReviewBrief.Change.Intent == "" || sr.ReviewBrief.RiskLevel != "medium" {
+		t.Errorf("review brief: %+v", sr.ReviewBrief)
+	}
+	if len(sr.ReviewBrief.HighLevelConcerns) != 1 || sr.AuthorMessage == "" {
+		t.Errorf("public concern/message mismatch: concerns=%+v message=%q",
+			sr.ReviewBrief.HighLevelConcerns, sr.AuthorMessage)
+	}
+}
+
+func TestRunStructuredReviewContractValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		json string
+		want string
+	}{
+		{
+			name: "legacy summary accepted",
+			json: legacyStructuredJSON,
+		},
+		{
+			name: "missing both contracts",
+			json: strings.Replace(legacyStructuredJSON, `"summary": "Adds foo. Looks reasonable overall.",`, "", 1),
+			want: "missing review_brief",
+		},
+		{
+			name: "missing required brief dimension",
+			json: strings.Replace(sampleStructuredJSON, `    "uncertainties": [],`+"\n", "", 1),
+			want: "missing uncertainties",
+		},
+		{
+			name: "invalid risk",
+			json: strings.Replace(sampleStructuredJSON, `"risk_level": "medium"`, `"risk_level": "extreme"`, 1),
+			want: "risk_level",
+		},
+		{
+			name: "message without concern",
+			json: strings.Replace(sampleStructuredJSON,
+				`"high_level_concerns": [`+"\n"+`      {"concern": "Batch-level failure remains coupled to one item.", "why": "The behavior spans the processing loop rather than one changed line."}`+"\n"+`    ]`,
+				`"high_level_concerns": []`, 1),
+			want: "author_message requires",
+		},
+		{
+			name: "concern without message",
+			json: strings.Replace(sampleStructuredJSON,
+				`"author_message": "The batch still fails as a unit when one item cannot be processed. Could you confirm that failure boundary is intentional?"`,
+				`"author_message": null`, 1),
+			want: "concerns require author_message",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := writeStubClaude(t, tt.json, 0)
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			_, _, err := RunStructuredReview(context.Background(), "claude", "sonnet", "",
+				"https://github.com/owner/repo/pull/123", "", 30*time.Second)
+			if tt.want == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error=%v want containing %q", err, tt.want)
+			}
+		})
+	}
 }
 
 func TestRunStructuredReviewPassesConfiguredModel(t *testing.T) {
@@ -198,7 +321,7 @@ func TestE2E_DiscoverReviewPersist(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(ghScript), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	claudeScript := "#!/bin/sh\ncat <<'CLAUDE_EOF'\n" + sampleStructuredJSON + "\nCLAUDE_EOF\n"
+	claudeScript := "#!/bin/sh\ncat <<'CLAUDE_EOF'\n" + legacyStructuredJSON + "\nCLAUDE_EOF\n"
 	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(claudeScript), 0o755); err != nil {
 		t.Fatal(err)
 	}
