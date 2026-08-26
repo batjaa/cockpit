@@ -219,17 +219,20 @@ The following do not qualify:
   before implementation.
 - The reviewer can edit or remove an author message before posting.
 
-## Open Questions
+## Decisions
 
-1. Should risk level be model-assigned, rule-derived from findings and
-   boundaries, or model-assigned with deterministic guardrails?
-2. Should a high-level concern carry severity and selection state in the first
-   version, or is presence/absence sufficient for a personal tool?
-3. How should custom skills declare whether they support the new contract?
-4. What is the safest compatibility treatment for already-pending legacy
-   summaries?
-5. Does GitHub accept an empty top-level body for every verdict Cockpit
-   supports, especially request changes?
+1. Risk level is model-assigned as `low`, `medium`, or `high`; Cockpit validates
+   the enum and requires a rationale rather than deriving a second risk score.
+2. High-level concerns use presence/absence in the personal-tool version.
+   Severity and independent selection are deferred until real usage calls for
+   them.
+3. Contract support is detected from `review_brief`. Summary-only custom skills
+   remain on the explicit legacy path during the compatibility window.
+4. Already-pending legacy summaries remain author-facing, editable, and visibly
+   labeled. They are never reinterpreted as private text.
+5. GitHub permits an approval without a body but requires a body for Comment
+   and Request changes. Cockpit therefore omits empty approval bodies and
+   requires an author message for the other two events.
 
 ## Success Criteria
 
@@ -244,11 +247,15 @@ The following do not qualify:
 - Existing reviews and custom skills fail safely rather than publishing a
   private brief as public prose.
 
-## Next Steps
+## Implementation Status
 
-1. Verify GitHub's empty-body rules for approve, comment, and request-changes
-   events.
-2. Resolve the five open questions, prioritizing compatibility and posting
-   safety.
-3. Turn this design into an implementation spec covering the skill contract,
-   migration, persistence, dashboard, detail page, submission path, and tests.
+Implemented on 2026-08-26 across the skill contract, parser validation,
+database migration, persistence, dashboard, detail page, author-message
+editing, and GitHub payload tests.
+
+Possible future extensions, if the personal workflow demonstrates a need:
+
+- calibrate risk labels against observed reviewer decisions;
+- add an explicit contract version after the legacy compatibility window;
+- promote high-level concerns into independently selectable items; and
+- revisit team workflows, policy controls, and commercialization separately.

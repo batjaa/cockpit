@@ -3,7 +3,8 @@
 Local PR review pipeline. Periodically (or on demand) invokes the
 `pr-review-structured` Claude skill against PRs matching a `gh` search
 filter, stores findings in SQLite, and serves a web UI for picking which
-comments to post.
+comments to post. Each review includes a private structured risk brief for the
+reviewer and, only when warranted, a separate author-facing message.
 
 Single Go binary. SQLite (pure-Go, no CGO). Tailwind vendored as a single
 file. Shells out to `gh` and `claude`.
@@ -181,14 +182,22 @@ Per matching PR, in the order documented in
    `head_sha`; otherwise dismiss any stale pending reviews (force-push)
    and proceed.
 4. `claude -p "/pr-review-structured <url>"` — parses the trailing JSON
-   from stdout, persists `reviews` row + N `comments` rows in a
-   transaction with `state='pending'`.
-5. Findings appear in the dashboard. On the detail page, check the
-   comments to include, pick Comment / Approve / Request changes, and
-   Submit — cockpit re-checks the PR head SHA first and refuses if the
-   branch moved since the review (re-review instead). Everything posts
-   as ONE GitHub review via `gh api`. Dismiss removes a review from the
-   pending list without posting.
+   from stdout, persists the private `review_brief`, optional public
+   `author_message`, and N inline findings in one transaction with
+   `state='pending'`.
+5. The dashboard and detail page lead with the private brief: change intent,
+   mechanism, risk, complex areas, boundary changes, blast radius, validation,
+   uncertainties, and recommendation. This data never enters a GitHub payload.
+6. Check the inline comments to include, edit or explicitly add an author
+   message, choose Comment / Approve / Request changes, and Submit. Cockpit
+   re-checks the PR head SHA first and refuses if the branch moved. Everything
+   public posts as one GitHub review via `gh api`; Dismiss posts nothing.
+
+The default skill generates `author_message` only for an actionable
+cross-cutting concern. Positive feedback and localized inline findings do not
+qualify. A bare approval may omit the message; GitHub requires a body for
+Comment and Request changes, so Cockpit requires an author message for those
+events. See the [GitHub review API](https://docs.github.com/en/rest/pulls/reviews?apiVersion=2026-03-10).
 
 Reviews take 2–5 minutes per PR and run `claude.concurrency` at a time
 (default 3).
@@ -227,14 +236,22 @@ output contract documented at the bottom of `SKILL.md`. Cockpit invokes
 trailing JSON object for these fields:
 
 - `pr` (owner/repo/number/title/author/head_sha)
-- `summary` — posted verbatim as the review body
+- `review_brief` — required private analysis with change, risk, complexity,
+  boundaries, blast radius, validation, uncertainty, recommendation, and
+  high-level concerns; never posted
+- `author_message` — string or `null`; generated only when
+  `review_brief.high_level_concerns` is non-empty and the only generated
+  top-level prose eligible for posting
 - `verdict` — `approve` / `approve-with-suggestions` / `request-changes`
 - `findings[]` — id/severity/perfect/path/line/original_line/body
 - `positives[]`
 - `followups[]` — only when `--previous` is passed (re-review context)
 
 If a custom skill breaks the schema, the review fails with a parse error
-and cockpit records the raw output for debugging.
+and cockpit records the raw output for debugging. During the compatibility
+window, custom skills that emit the old `summary` field still work; Cockpit
+labels their content as legacy author-facing text and never treats it as a
+private brief.
 
 ## Sessions
 

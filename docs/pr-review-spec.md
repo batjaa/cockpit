@@ -80,7 +80,19 @@ The skill's final message must be a JSON object only (no surrounding prose):
     "author": "...",
     "head_sha": "abc123..."
   },
-  "summary": "Author-facing paragraph; posted verbatim as the review body.",
+  "review_brief": {
+    "change": {"intent": "Why it exists.", "mechanism": "How it works."},
+    "risk_level": "low" | "medium" | "high",
+    "risk_rationale": "Why that risk level fits.",
+    "complex_areas": [{"area": "...", "why": "..."}],
+    "boundary_changes": [{"boundary": "...", "impact": "..."}],
+    "blast_radius": "Who and what can be affected if it fails.",
+    "validation": {"coverage": "What is proven.", "gaps": ["What is not."]},
+    "uncertainties": ["Facts the review could not establish."],
+    "recommendation": "The reviewer's next action.",
+    "high_level_concerns": [{"concern": "...", "why": "..."}]
+  },
+  "author_message": null,
   "verdict": "approve" | "approve-with-suggestions" | "request-changes",
   "findings": [
     {
@@ -99,9 +111,13 @@ The skill's final message must be a JSON object only (no surrounding prose):
 
 Notes:
 
-- `summary` is written TO the PR author (it becomes the top-level body
-  of the posted GitHub review), not as reviewer notes. Tone guidance
-  lives in the skill's field rules.
+- `review_brief` is private reviewer analysis. Every dimension is present,
+  even when an array is empty, and no posting path may read it.
+- `author_message` is the only generated top-level public prose. It is null or
+  empty unless `high_level_concerns` contains an actionable cross-cutting
+  concern. Praise, recaps, verdicts, and line-local findings do not qualify.
+- The parser accepts the old `summary` contract for custom-skill and stored-row
+  compatibility. The UI labels it as legacy author-facing content.
 - `body` is already in Conventional Comments format — consumers post it
   verbatim.
 - `line` is the **resolved, in-hunk** line. `original_line` is what the
@@ -208,7 +224,9 @@ CREATE TABLE reviews (
   pr_id       INTEGER NOT NULL REFERENCES prs(id),
   run_id      INTEGER NOT NULL REFERENCES runs(id),
   head_sha    TEXT NOT NULL,
-  summary     TEXT,
+  summary     TEXT, -- legacy v1 author-facing body
+  review_brief TEXT NOT NULL DEFAULT '', -- private structured JSON
+  author_message TEXT NOT NULL DEFAULT '', -- optional v2 public body
   raw_output  TEXT,
   state       TEXT NOT NULL CHECK(state IN ('pending','posted','dismissed','failed')),
   created_at  DATETIME NOT NULL,
@@ -386,7 +404,7 @@ Translates to:
 ```bash
 gh api -X POST repos/{owner}/{repo}/pulls/{number}/reviews \
   -f event=COMMENT \
-  -f body="<review.summary>" \
+  -f body="<review.author_message>" \
   --input - <<EOF
 {
   "comments": [
@@ -399,6 +417,12 @@ EOF
 
 On success: mark `reviews.state='posted'`, store `github_review_id`, mark
 selected comments `posted=1` with their returned IDs.
+
+For structured reviews, payload construction can read `author_message` but not
+`review_brief`. `APPROVE` omits an empty body. `COMMENT` and
+`REQUEST_CHANGES` require a non-empty author message, matching GitHub's REST
+review API contract. Legacy rows continue to use their explicitly labeled
+`summary` as the public body.
 
 ---
 
