@@ -346,8 +346,8 @@ document.querySelectorAll('.comment-toggle').forEach(cb => {
         return;
       }
       const data = JSON.parse(text);
-      show('Posted ' + data.posted_comments + ' comment(s). Reloading…', true);
-      setTimeout(() => location.reload(), 1200);
+      show('Posted ' + data.posted_comments + ' comment(s). Returning to reviews…', true);
+      setTimeout(() => { location.href = '/'; }, 700);
     } catch (err) {
       show('submit failed: ' + err, false);
       submitBtn.disabled = false;

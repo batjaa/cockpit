@@ -281,6 +281,7 @@ func TestServer_DetailPage(t *testing.T) {
 		"Complex or vulnerable areas", "Cross-boundary dependencies", "Blast radius",
 		"Validation", "Uncertainties", "Recommendation", "High-level concerns",
 		"Could you add coverage for retries across the queue boundary?",
+		"Returning to reviews", "setTimeout(() => { location.href = '/'; }, 700)",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in detail body", want)
