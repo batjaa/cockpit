@@ -71,6 +71,17 @@ func TestServer_DashboardEmpty(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "No pending reviews") {
 		t.Errorf("missing empty-state copy:\n%s", w.Body.String())
 	}
+	for _, want := range []string{
+		"hasWork ? 'Queue' : 'Review'",
+		"fetchRunState().then",
+		"await refreshAfterAction()",
+		"reviewBtn.disabled = false",
+		"if (polling) return",
+	} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("manual review queue UI missing %q", want)
+		}
+	}
 }
 
 func TestServer_DashboardWithReview(t *testing.T) {

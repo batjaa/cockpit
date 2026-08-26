@@ -208,10 +208,48 @@
 (function() {
   const btn = document.getElementById('run-now');
   const form = document.getElementById('manual-review-form');
+  const reviewBtn = document.getElementById('manual-review-btn');
+  let queueHasWork = false;
+  let polling = false;
 
-  // If the server marked us as already running, just poll.
-  if (btn && btn.dataset.running === 'true') {
-    poll();
+  function setReviewButton(hasWork) {
+    queueHasWork = hasWork;
+    if (reviewBtn && !reviewBtn.disabled) {
+      reviewBtn.textContent = hasWork ? 'Queue' : 'Review';
+    }
+  }
+
+  async function fetchRunState() {
+    const res = await fetch('/run-status');
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+
+  // Queue state is fetched once on page load. The existing progress poll only
+  // starts when there is active work; each enqueue action also refreshes this
+  // state immediately so the next submission gets the right verb.
+  fetchRunState().then(data => {
+    setReviewButton(data.running);
+    if (data.running) {
+      renderProgress(data.items);
+      poll();
+    }
+  }).catch(() => {
+    // Keep the server-rendered default when the one-shot status fetch fails.
+  });
+
+  async function refreshAfterAction() {
+    try {
+      const data = await fetchRunState();
+      setReviewButton(data.running);
+      if (data.running) {
+        renderProgress(data.items);
+        poll();
+      }
+    } catch (_) {
+      // The enqueue response succeeded; a transient status failure should not
+      // leave the form disabled or prevent another submission.
+    }
   }
 
   if (btn && !btn.disabled) {
@@ -233,7 +271,7 @@
           const n = data.ahead || 0;
           toast(`Run queued — ${n} ahead. It'll start automatically.`, 'info');
         }
-        poll();
+        await refreshAfterAction();
       } catch (err) {
         btn.textContent = 'Run now';
         btn.disabled = false;
@@ -275,10 +313,10 @@
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const input = document.getElementById('manual-url');
-      const reviewBtn = document.getElementById('manual-review-btn');
       const url = input.value.trim();
       if (!url) return;
       reviewBtn.disabled = true;
+      reviewBtn.textContent = queueHasWork ? 'Queueing…' : 'Starting…';
       try {
         const res = await fetch('/review', {
           method: 'POST',
@@ -286,7 +324,6 @@
           body: JSON.stringify({url})
         });
         if (!res.ok) {
-          reviewBtn.disabled = false;
           toast('Review failed: ' + (await res.text()), 'error');
           return;
         }
@@ -300,10 +337,12 @@
         } else {
           toast('Review started — findings will appear here shortly.', 'success');
         }
-        poll();
+        await refreshAfterAction();
       } catch (err) {
-        reviewBtn.disabled = false;
         toast('Review failed: ' + err, 'error');
+      } finally {
+        reviewBtn.disabled = false;
+        reviewBtn.textContent = queueHasWork ? 'Queue' : 'Review';
       }
     });
   }
@@ -360,19 +399,24 @@
   }
 
   async function poll() {
-    while (true) {
-      try {
-        const res = await fetch('/run-status');
-        const data = await res.json();
-        renderProgress(data.items);
-        if (!data.running) {
-          location.reload();
-          return;
+    if (polling) return;
+    polling = true;
+    try {
+      while (true) {
+        try {
+          const data = await fetchRunState();
+          renderProgress(data.items);
+          if (!data.running) {
+            location.reload();
+            return;
+          }
+        } catch (err) {
+          // Network blip; keep trying.
         }
-      } catch (err) {
-        // Network blip; keep trying.
+        await new Promise(r => setTimeout(r, 2000));
       }
-      await new Promise(r => setTimeout(r, 2000));
+    } finally {
+      polling = false;
     }
   }
 
