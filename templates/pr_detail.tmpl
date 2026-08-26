@@ -324,6 +324,59 @@ document.querySelectorAll('.comment-toggle').forEach(cb => {
     result.textContent = msg;
   };
 
+  const showStaleReview = (data) => {
+    result.classList.remove('hidden');
+    result.className = 'max-w-5xl mx-auto mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900';
+    result.replaceChildren();
+
+    const title = document.createElement('div');
+    title.className = 'font-semibold';
+    title.textContent = 'This PR changed after the review';
+    const detail = document.createElement('div');
+    detail.className = 'mt-1 text-sm text-amber-800';
+    detail.textContent = `${data.previous_sha.slice(0, 7)} → ${data.current_sha.slice(0, 7)}. Nothing was posted, and the stale review was removed from the queue.`;
+    const actions = document.createElement('div');
+    actions.className = 'mt-3 flex items-center gap-3';
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'mono text-xs rounded bg-amber-700 px-3 py-2 text-white hover:bg-amber-800 disabled:opacity-40';
+    retry.textContent = 'Re-review latest commit';
+    const back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'text-xs text-amber-800 underline decoration-amber-300 underline-offset-2';
+    back.textContent = 'Back to review list';
+    const retryStatus = document.createElement('div');
+    retryStatus.className = 'mt-2 text-xs text-red-700';
+
+    retry.addEventListener('click', async () => {
+      retry.disabled = true;
+      retry.textContent = 'Queueing…';
+      retryStatus.textContent = '';
+      try {
+        const res = await fetch('/review', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({url: data.pr_url})
+        });
+        if (!res.ok) {
+          retryStatus.textContent = 'Could not queue the re-review: ' + (await res.text());
+          retry.disabled = false;
+          retry.textContent = 'Re-review latest commit';
+          return;
+        }
+        toast('Re-review queued for the latest commit.', 'success');
+        location.href = '/';
+      } catch (err) {
+        retryStatus.textContent = 'Could not queue the re-review: ' + err;
+        retry.disabled = false;
+        retry.textContent = 'Re-review latest commit';
+      }
+    });
+    back.addEventListener('click', () => { location.href = '/'; });
+    actions.append(retry, back);
+    result.append(title, detail, actions, retryStatus);
+  };
+
   submitBtn.addEventListener('click', async () => {
     const event = document.querySelector('#submit-event input:checked').value;
     const selected = document.querySelectorAll('.comment-toggle:checked').length;
@@ -341,6 +394,17 @@ document.querySelectorAll('.comment-toggle').forEach(cb => {
       });
       const text = await res.text();
       if (!res.ok) {
+        if (res.status === 409) {
+          try {
+            const data = JSON.parse(text);
+            if (data.code === 'stale_review') {
+              showStaleReview(data);
+              return;
+            }
+          } catch (_) {
+            // Other conflicts retain the normal inline error treatment.
+          }
+        }
         show(text, false);
         submitBtn.disabled = false;
         return;

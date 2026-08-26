@@ -266,7 +266,8 @@ func TestE2E_SubmitReview(t *testing.T) {
 }
 
 // TestE2E_SubmitStaleSHA: gh pr view reports a different head than the
-// review was generated against -> 409, nothing posted, state unchanged.
+// review was generated against -> structured 409, nothing posted, and the
+// unusable review is dismissed so the UI can offer a clean re-review path.
 func TestE2E_SubmitStaleSHA(t *testing.T) {
 	dir := t.TempDir()
 	captureFile := filepath.Join(t.TempDir(), "payload.json")
@@ -283,16 +284,26 @@ func TestE2E_SubmitStaleSHA(t *testing.T) {
 	if w.Code != http.StatusConflict {
 		t.Fatalf("status=%d want 409; body=%s", w.Code, w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "re-review") {
-		t.Errorf("stale message should suggest re-review: %s", w.Body.String())
+	if got := w.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
+		t.Fatalf("content-type=%q want application/json", got)
+	}
+	var stale staleReviewResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &stale); err != nil {
+		t.Fatalf("decode stale response: %v body=%s", err, w.Body.String())
+	}
+	if stale.Code != "stale_review" || stale.PreviousSHA != "abc1234" || stale.CurrentSHA != "ffff999" {
+		t.Errorf("stale response=%+v", stale)
+	}
+	if stale.PRURL != "https://github.com/octo/repo/pull/42" || !strings.Contains(stale.Message, "Nothing was posted") {
+		t.Errorf("stale recovery context incomplete: %+v", stale)
 	}
 	if _, err := os.Stat(captureFile); !os.IsNotExist(err) {
 		t.Error("gh api was called despite stale SHA")
 	}
 	var state string
 	db.QueryRow(`SELECT state FROM reviews WHERE id=?`, reviewID).Scan(&state)
-	if state != "pending" {
-		t.Errorf("state=%q want pending (unchanged)", state)
+	if state != "dismissed" {
+		t.Errorf("state=%q want dismissed", state)
 	}
 }
 

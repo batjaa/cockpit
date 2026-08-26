@@ -542,6 +542,14 @@ func effectiveAuthorMessage(d *ReviewDetail) string {
 
 var validEvents = map[string]bool{"APPROVE": true, "REQUEST_CHANGES": true, "COMMENT": true}
 
+type staleReviewResponse struct {
+	Code        string `json:"code"`
+	Message     string `json:"message"`
+	PRURL       string `json:"pr_url"`
+	PreviousSHA string `json:"previous_sha"`
+	CurrentSHA  string `json:"current_sha"`
+}
+
 // handleSubmit posts the review to GitHub: one API call containing the
 // optional author message and every selected comment. Private review briefs
 // never enter the payload construction path.
@@ -620,10 +628,23 @@ func (s *server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if current.HeadRefOid != d.HeadSHA {
-		http.Error(w,
-			fmt.Sprintf("PR head moved (%.7s -> %.7s) since this review; re-review before posting",
+		// This review can never be posted safely now that its commit and line
+		// anchors are stale. Remove it from the pending queue before offering a
+		// fresh review; failed re-review attempts remain independently retryable.
+		if err := MarkReviewDismissed(r.Context(), s.db, id); err != nil {
+			s.serverError(w, "dismiss stale review", err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(staleReviewResponse{
+			Code: "stale_review",
+			Message: fmt.Sprintf("PR updated from %.7s to %.7s. Nothing was posted; the stale review was removed from the queue.",
 				d.HeadSHA, current.HeadRefOid),
-			http.StatusConflict)
+			PRURL:       d.PR.URL,
+			PreviousSHA: d.HeadSHA,
+			CurrentSHA:  current.HeadRefOid,
+		})
 		return
 	}
 

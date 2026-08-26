@@ -541,7 +541,10 @@ Each step = one commit.
   schema.
 - **Line number staleness**: between the review and submission the PR may
   receive new commits. The submit handler re-checks `head_sha` against the
-  review's stored SHA and refuses (with a "re-review now" link) if changed.
+  review's stored SHA. If changed, it atomically dismisses the unusable review
+  and returns a structured `stale_review` conflict containing both SHAs and
+  the PR URL. The detail page confirms nothing posted and offers
+  **Re-review latest commit**, which uses the serial manual-review queue.
 - **Search filter scope**: `gh` defaults to 30 results, we use `--limit 50`.
   If the filter regularly returns more, paginate.
 - **`gh` auth**: detect missing auth at startup with `gh auth status` and

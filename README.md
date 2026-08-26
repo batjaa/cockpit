@@ -192,8 +192,10 @@ Per matching PR, in the order documented in
    uncertainties, and recommendation. This data never enters a GitHub payload.
 6. Check the inline comments to include, edit or explicitly add an author
    message, choose Comment / Approve / Request changes, and Submit. Cockpit
-   re-checks the PR head SHA first and refuses if the branch moved. Everything
-   public posts as one GitHub review via `gh api`; Dismiss posts nothing.
+   re-checks the PR head SHA first. If the branch moved, Cockpit removes the
+   stale review before anything posts and offers a one-click re-review of the
+   latest commit. Everything public posts as one GitHub review via `gh api`;
+   Dismiss posts nothing.
 
 The default skill generates `author_message` only for an actionable
 cross-cutting concern. Positive feedback and localized inline findings do not
