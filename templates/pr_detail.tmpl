@@ -216,10 +216,10 @@
   <div class="max-w-5xl mx-auto flex items-center justify-between gap-4 flex-wrap">
     <fieldset class="flex items-center gap-4 text-sm" id="submit-event">
       <label class="flex items-center gap-1.5 cursor-pointer">
-        <input type="radio" name="event" value="COMMENT" checked class="accent-zinc-900"> Comment
+        <input type="radio" name="event" value="COMMENT" {{if .EditableMessage}}checked{{end}} class="accent-zinc-900"> Comment
       </label>
       <label class="flex items-center gap-1.5 cursor-pointer">
-        <input type="radio" name="event" value="APPROVE" class="accent-emerald-600"> Approve
+        <input type="radio" name="event" value="APPROVE" {{if not .EditableMessage}}checked{{end}} class="accent-emerald-600"> Approve
       </label>
       <label class="flex items-center gap-1.5 cursor-pointer">
         <input type="radio" name="event" value="REQUEST_CHANGES" class="accent-red-600"> Request changes
@@ -232,6 +232,7 @@
       </button>
     </div>
   </div>
+  <p class="max-w-5xl mx-auto mt-2 text-xs text-zinc-400">GitHub requires an author message for Comment and Request changes. Approve can post selected inline findings without one.</p>
   <div id="submit-result" class="max-w-5xl mx-auto mt-2 text-sm hidden"></div>
 </div>
 {{else}}

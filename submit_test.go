@@ -111,6 +111,47 @@ func seedSubmitReview(t *testing.T, db *sql.DB) (reviewID int64, commentIDs []in
 	return reviewID, commentIDs
 }
 
+func makeSubmitReviewStructured(t *testing.T, db *sql.DB, reviewID int64, authorMessage string) string {
+	t.Helper()
+	privateMarker := "PRIVATE BRIEF: a failure can affect every queued job."
+	brief := StructuredReviewBrief{
+		Change: StructuredReviewChange{
+			Intent:    "Protect queued work from invalid input.",
+			Mechanism: "Validates the request before crossing the queue boundary.",
+		},
+		RiskLevel:     "high",
+		RiskRationale: "Every queued job shares this path.",
+		ComplexAreas: []StructuredReviewComplexArea{
+			{Area: "Queue dispatch", Why: "Retry state is shared across attempts."},
+		},
+		BoundaryChanges: []StructuredReviewBoundary{
+			{Boundary: "API to queue", Impact: "Old and new payloads meet at the worker."},
+		},
+		BlastRadius: privateMarker,
+		Validation: StructuredReviewValidation{
+			Coverage: "Unit tests cover request validation.",
+			Gaps:     []string{"No deployment compatibility test."},
+		},
+		Uncertainties:  []string{"Old payload retention is unknown."},
+		Recommendation: "Verify payload compatibility.",
+	}
+	if authorMessage != "" {
+		brief.HighLevelConcerns = []StructuredReviewConcern{
+			{Concern: "Deployment compatibility is unverified.", Why: "Queued payloads span versions."},
+		}
+	}
+	encoded, err := json.Marshal(brief)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`
+		UPDATE reviews SET summary='', review_brief=?, author_message=? WHERE id=?
+	`, encoded, authorMessage, reviewID); err != nil {
+		t.Fatal(err)
+	}
+	return privateMarker
+}
+
 func newSubmitServer(t *testing.T) (*sql.DB, *http.ServeMux) {
 	t.Helper()
 	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
@@ -453,13 +494,115 @@ func TestE2E_SubmitValidation(t *testing.T) {
 	if w := postJSON(mux, fmt.Sprintf("/pr/%d/submit", reviewID), `{"event":"MERGE"}`); w.Code != 400 {
 		t.Errorf("bad event: status=%d want 400", w.Code)
 	}
-	// COMMENT with nothing selected
+	// COMMENT with neither an author message nor selected comments.
+	if _, err := db.Exec(`UPDATE reviews SET summary='' WHERE id=?`, reviewID); err != nil {
+		t.Fatal(err)
+	}
 	if w := postJSON(mux, fmt.Sprintf("/pr/%d/submit", reviewID), `{"event":"COMMENT"}`); w.Code != 400 {
 		t.Errorf("empty selection: status=%d want 400", w.Code)
 	}
 	// Nonexistent review
 	if w := postJSON(mux, "/pr/9999/submit", `{"event":"COMMENT"}`); w.Code != 404 {
 		t.Errorf("missing review: status=%d want 404", w.Code)
+	}
+}
+
+func TestE2E_SubmitStructuredReviewPublicBoundary(t *testing.T) {
+	tests := []struct {
+		name          string
+		authorMessage string
+		event         string
+		selectComment bool
+		wantBody      string
+	}{
+		{
+			name:          "generated concern message posts",
+			authorMessage: "Could you verify old queued payloads before merging?",
+			event:         "APPROVE",
+			selectComment: true,
+			wantBody:      "Could you verify old queued payloads before merging?",
+		},
+		{
+			name:          "bare approval omits body",
+			event:         "APPROVE",
+			selectComment: true,
+		},
+		{
+			name:          "high level comment needs no inline finding",
+			authorMessage: "Could you verify old queued payloads before merging?",
+			event:         "COMMENT",
+			wantBody:      "Could you verify old queued payloads before merging?",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			captureFile := filepath.Join(t.TempDir(), "payload.json")
+			writeSubmitStubGH(t, dir, "abc1234", captureFile)
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+			db, mux := newSubmitServer(t)
+			reviewID, commentIDs := seedSubmitReview(t, db)
+			privateMarker := makeSubmitReviewStructured(t, db, reviewID, tt.authorMessage)
+			if tt.selectComment {
+				if _, err := db.Exec(`UPDATE comments SET selected=1 WHERE id=?`, commentIDs[0]); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			w := postJSON(mux, fmt.Sprintf("/pr/%d/submit", reviewID),
+				fmt.Sprintf(`{"event":%q}`, tt.event))
+			if w.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+			}
+			data, err := os.ReadFile(captureFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(data), privateMarker) || strings.Contains(string(data), "review_brief") {
+				t.Fatalf("private brief leaked into GitHub payload: %s", data)
+			}
+			var payload ReviewPayload
+			if err := json.Unmarshal(data, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload.Body != tt.wantBody {
+				t.Errorf("body=%q want %q", payload.Body, tt.wantBody)
+			}
+			var rawPayload map[string]json.RawMessage
+			if err := json.Unmarshal(data, &rawPayload); err != nil {
+				t.Fatal(err)
+			}
+			if _, exists := rawPayload["body"]; tt.wantBody == "" && exists {
+				t.Errorf("empty structured message should omit top-level body: %s", data)
+			}
+		})
+	}
+}
+
+func TestE2E_SubmitStructuredReviewRequiresMessageForNonApproval(t *testing.T) {
+	for _, event := range []string{"COMMENT", "REQUEST_CHANGES"} {
+		t.Run(event, func(t *testing.T) {
+			dir := t.TempDir()
+			captureFile := filepath.Join(t.TempDir(), "payload.json")
+			writeSubmitStubGH(t, dir, "abc1234", captureFile)
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+			db, mux := newSubmitServer(t)
+			reviewID, commentIDs := seedSubmitReview(t, db)
+			makeSubmitReviewStructured(t, db, reviewID, "")
+			if _, err := db.Exec(`UPDATE comments SET selected=1 WHERE id=?`, commentIDs[0]); err != nil {
+				t.Fatal(err)
+			}
+
+			w := postJSON(mux, fmt.Sprintf("/pr/%d/submit", reviewID), fmt.Sprintf(`{"event":%q}`, event))
+			if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "requires an author message") {
+				t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+			}
+			if _, err := os.Stat(captureFile); !os.IsNotExist(err) {
+				t.Error("GitHub API was called despite a missing required author message")
+			}
+		})
 	}
 }
 
@@ -509,9 +652,9 @@ func TestE2E_SubmitApproveWithoutComments(t *testing.T) {
 	}
 }
 
-// TestE2E_EditSummaryThenSubmit: PATCH the summary, then submit — the
-// gh api payload must carry the edited text, not the original.
-func TestE2E_EditSummaryThenSubmit(t *testing.T) {
+// TestE2E_EditAuthorMessageThenSubmit: PATCH the public message, then submit —
+// the gh api payload must carry the edited text, not the original.
+func TestE2E_EditAuthorMessageThenSubmit(t *testing.T) {
 	dir := t.TempDir()
 	captureFile := filepath.Join(t.TempDir(), "payload.json")
 	writeSubmitStubGH(t, dir, "abc1234", captureFile)
@@ -525,12 +668,12 @@ func TestE2E_EditSummaryThenSubmit(t *testing.T) {
 
 	edited := "Thanks for the cleanup — one inline suggestion on the loop guard."
 	req := httptest.NewRequest("PATCH", fmt.Sprintf("/reviews/%d", reviewID),
-		strings.NewReader(fmt.Sprintf(`{"summary": %q}`, edited)))
+		strings.NewReader(fmt.Sprintf(`{"author_message": %q}`, edited)))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusNoContent {
-		t.Fatalf("PATCH summary status=%d body=%s", w.Code, w.Body.String())
+		t.Fatalf("PATCH author message status=%d body=%s", w.Code, w.Body.String())
 	}
 
 	// Edit persisted

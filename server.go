@@ -479,6 +479,9 @@ func (s *server) handlePRDetail(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// effectiveAuthorMessage is the sole path from stored review text to a public
+// GitHub review body. Structured reviews can expose only author_message; the
+// private review_brief is intentionally not accepted by this function.
 func effectiveAuthorMessage(d *ReviewDetail) string {
 	if d.ReviewBrief != nil {
 		return d.AuthorMessage
@@ -489,12 +492,13 @@ func effectiveAuthorMessage(d *ReviewDetail) string {
 var validEvents = map[string]bool{"APPROVE": true, "REQUEST_CHANGES": true, "COMMENT": true}
 
 // handleSubmit posts the review to GitHub: one API call containing the
-// summary and every selected comment.
+// optional author message and every selected comment. Private review briefs
+// never enter the payload construction path.
 //
 // Refusal cases, in check order:
 //   - 400 unknown event / bad body
 //   - 409 review not in 'pending' state (already posted or dismissed)
-//   - 400 COMMENT event with zero selected comments (empty review)
+//   - 400 COMMENT / REQUEST_CHANGES without an author message (GitHub requires it)
 //   - 409 PR head moved since the review was generated (stale line anchors)
 func (s *server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
@@ -527,6 +531,7 @@ func (s *server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "review is "+d.State+", not pending", http.StatusConflict)
 		return
 	}
+	authorMessage := strings.TrimSpace(effectiveAuthorMessage(d))
 
 	var comments []ReviewPayloadComment
 	skippedUnresolved := 0
@@ -543,8 +548,10 @@ func (s *server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 			Path: c.Path, Line: c.Line, Side: "RIGHT", Body: c.Body,
 		})
 	}
-	if body.Event == "COMMENT" && len(comments) == 0 {
-		http.Error(w, "no comments selected; refusing to post an empty review", http.StatusBadRequest)
+	if (body.Event == "COMMENT" || body.Event == "REQUEST_CHANGES") && authorMessage == "" {
+		http.Error(w,
+			"GitHub requires an author message for Comment and Request changes; add one or choose Approve",
+			http.StatusBadRequest)
 		return
 	}
 
@@ -608,7 +615,7 @@ func (s *server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	posted, err := PostReview(r.Context(), d.PR.Owner, d.PR.Repo, d.PR.Number, ReviewPayload{
 		CommitID: d.HeadSHA,
 		Event:    body.Event,
-		Body:     d.Summary,
+		Body:     authorMessage,
 		Comments: comments,
 	})
 	if err != nil {
