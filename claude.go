@@ -133,7 +133,6 @@ func RunStructuredReview(ctx context.Context, binary, model, skill, prURL, previ
 		"--model", model,
 		"--output-format", "text",
 		"--permission-mode", "bypassPermissions",
-		"--max-turns", "30",
 		prompt,
 	}
 	cmd := exec.CommandContext(cctx, binary, args...)

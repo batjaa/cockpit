@@ -274,7 +274,7 @@ func TestRunStructuredReviewContractValidation(t *testing.T) {
 	}
 }
 
-func TestRunStructuredReviewPassesConfiguredModel(t *testing.T) {
+func TestRunStructuredReviewPassesConfiguredModelWithoutTurnCap(t *testing.T) {
 	dir := t.TempDir()
 	argsPath := filepath.Join(dir, "args")
 	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$CLAUDE_ARGS_FILE\"\ncat <<'CLAUDE_EOF'\n" + sampleStructuredJSON + "\nCLAUDE_EOF\n"
@@ -294,6 +294,9 @@ func TestRunStructuredReviewPassesConfiguredModel(t *testing.T) {
 	}
 	if !strings.Contains(string(args), "--model\nsonnet\n") {
 		t.Fatalf("configured model not passed to claude; args:\n%s", args)
+	}
+	if strings.Contains(string(args), "--max-turns") {
+		t.Fatalf("review invocation still has a fixed turn cap; args:\n%s", args)
 	}
 }
 
