@@ -57,8 +57,18 @@
 {{with .LastRun}}
 {{if eq .Status "error"}}
 <div role="alert" class="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-  <div class="font-semibold">Review run failed</div>
-  <div class="mt-1 mono text-xs whitespace-pre-wrap">{{if .Error}}{{.Error}}{{else}}A dependency failed without an error message.{{end}}</div>
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <div class="font-semibold">Review run failed</div>
+      <div class="mt-1 mono text-xs whitespace-pre-wrap">{{if .Error}}{{.Error}}{{else}}A dependency failed without an error message.{{end}}</div>
+    </div>
+    {{if gt .Retryable 0}}
+    <button id="retry-failed" data-run="{{.ID}}"
+            class="shrink-0 mono text-xs rounded border border-red-300 bg-white px-3 py-1.5 text-red-700 hover:bg-red-100 disabled:opacity-40">
+      Retry failed{{if gt .Retryable 1}} ({{.Retryable}}){{end}}
+    </button>
+    {{end}}
+  </div>
 </div>
 {{end}}
 {{end}}
@@ -314,6 +324,33 @@
         btn.textContent = 'Run now';
         btn.disabled = false;
         toast('Run failed: ' + err, 'error');
+      }
+    });
+  }
+
+  const retryBtn = document.getElementById('retry-failed');
+  if (retryBtn) {
+    retryBtn.addEventListener('click', async () => {
+      if (retryBtn.disabled) return;
+      retryBtn.disabled = true;
+      const label = retryBtn.textContent;
+      retryBtn.textContent = 'Retrying…';
+      try {
+        const res = await fetch(`/runs/${retryBtn.dataset.run}/retry-failed`, {method: 'POST'});
+        if (!res.ok) {
+          retryBtn.disabled = false;
+          retryBtn.textContent = label;
+          toast('Retry failed: ' + (await res.text()), 'error');
+          return;
+        }
+        const data = await res.json();
+        const total = data.queued || 0;
+        toast(`${total} failed review${total === 1 ? '' : 's'} queued.`, 'success');
+        await refreshAfterAction();
+      } catch (err) {
+        retryBtn.disabled = false;
+        retryBtn.textContent = label;
+        toast('Retry failed: ' + err, 'error');
       }
     });
   }

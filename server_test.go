@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -478,6 +479,91 @@ func TestServer_RunNow_MissingSearch(t *testing.T) {
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusPreconditionFailed {
 		t.Errorf("status=%d body=%s want 412", w.Code, w.Body.String())
+	}
+}
+
+func TestServer_RetryFailedReviews(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	now := time.Now()
+	runID, err := InsertRun(ctx, db, "manual", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prID, err := UpsertPR(ctx, db, GHPR{
+		Number: 42, Title: "Retry me", URL: "https://github.com/octo/repo/pull/42",
+		HeadRefOid: "failed-sha", Author: GHAuthor{Login: "octocat"},
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PersistFailedReview(ctx, db, prID, runID, "failed-sha", "Reached max turns (30)", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := FinishRun(ctx, db, runID, "error", "Reached max turns (30)", now); err != nil {
+		t.Fatal(err)
+	}
+
+	// Hold the worker on a synthetic discovery job so the retry remains queued
+	// and can be asserted without invoking external dependencies.
+	s := &server{db: db, baseCtx: context.Background()}
+	s.runMu.Lock()
+	s.active = true
+	s.current = &runJob{kind: runDiscover, trigger: "test"}
+	s.runMu.Unlock()
+	mux := http.NewServeMux()
+	s.routes(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("dashboard status=%d body=%s", w.Code, w.Body.String())
+	}
+	for _, want := range []string{
+		`id="retry-failed"`, fmt.Sprintf(`data-run="%d"`, runID),
+		"Retry failed", "Reached max turns (30)",
+	} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("dashboard missing %q", want)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("POST", fmt.Sprintf("/runs/%d/retry-failed", runID), nil))
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("retry status=%d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"queued":1`) {
+		t.Errorf("retry response=%s", w.Body.String())
+	}
+	s.runMu.Lock()
+	defer s.runMu.Unlock()
+	if len(s.queue) != 1 || s.queue[0].kind != runReview || s.queue[0].url != "https://github.com/octo/repo/pull/42" {
+		t.Fatalf("retry queue=%+v", s.queue)
+	}
+}
+
+func TestServer_RetryFailedReviewsRejectsEmptyRun(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	runID, err := InsertRun(context.Background(), db, "manual", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &server{db: db, baseCtx: context.Background()}
+	mux := http.NewServeMux()
+	s.routes(mux)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("POST", fmt.Sprintf("/runs/%d/retry-failed", runID), nil))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 }
 

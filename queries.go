@@ -627,6 +627,33 @@ type RunSummary struct {
 	ReviewCount int
 }
 
+// ListFailedReviewURLsForRun returns the PRs whose Claude review failed in a
+// specific run. Failed rows do not participate in same-SHA caching, so each URL
+// is safe to enqueue as an explicit retry.
+func ListFailedReviewURLsForRun(ctx context.Context, db *sql.DB, runID int64) ([]string, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT DISTINCT p.url
+		FROM reviews r
+		JOIN prs p ON p.id = r.pr_id
+		WHERE r.run_id=? AND r.state='failed'
+		ORDER BY p.url
+	`, runID)
+	if err != nil {
+		return nil, fmt.Errorf("list failed reviews for run: %w", err)
+	}
+	defer rows.Close()
+
+	var urls []string
+	for rows.Next() {
+		var url string
+		if err := rows.Scan(&url); err != nil {
+			return nil, fmt.Errorf("scan failed review URL: %w", err)
+		}
+		urls = append(urls, url)
+	}
+	return urls, rows.Err()
+}
+
 // LatestRun returns the most recent run row, or nil if no runs exist.
 func LatestRun(ctx context.Context, db *sql.DB) (*RunSummary, error) {
 	var rs RunSummary

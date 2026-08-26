@@ -122,6 +122,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /reviews/{id}", s.handleAuthorMessageEdit)
 	mux.HandleFunc("POST /run-now", s.handleRunNow)
 	mux.HandleFunc("POST /review", s.handleManualReview)
+	mux.HandleFunc("POST /runs/{id}/retry-failed", s.handleRetryFailed)
 	mux.HandleFunc("POST /reconcile", s.handleReconcile)
 	mux.HandleFunc("GET /run-status", s.handleRunStatus)
 
@@ -248,10 +249,12 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type lastRunView struct {
+		ID          int64
 		Status      string
 		Age         string
 		Trigger     string
 		ReviewCount int
+		Retryable   int
 		Error       string
 	}
 	var lastRun *lastRunView
@@ -266,11 +269,19 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			errStr = latest.Error.String
 		}
 		lastRun = &lastRunView{
+			ID:          latest.ID,
 			Status:      latest.Status,
 			Age:         age,
 			Trigger:     latest.Trigger,
 			ReviewCount: latest.ReviewCount,
 			Error:       errStr,
+		}
+		if latest.Status == "error" || latest.Status == "partial" {
+			if urls, err := ListFailedReviewURLsForRun(r.Context(), s.db, latest.ID); err != nil {
+				slog.Warn("list retryable failed reviews", "run_id", latest.ID, "err", err)
+			} else {
+				lastRun.Retryable = len(urls)
+			}
 		}
 	}
 
@@ -372,6 +383,46 @@ func (s *server) handleManualReview(w http.ResponseWriter, r *http.Request) {
 
 	status, ahead := s.enqueue(runJob{kind: runReview, url: url})
 	s.writeRunAccepted(w, status, ahead, url)
+}
+
+// handleRetryFailed requeues every failed PR from the selected historical run.
+// It uses the same worker as manual reviews, and failed review rows deliberately
+// do not block same-SHA retries.
+func (s *server) handleRetryFailed(w http.ResponseWriter, r *http.Request) {
+	runID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "bad run id", http.StatusBadRequest)
+		return
+	}
+	urls, err := ListFailedReviewURLsForRun(r.Context(), s.db, runID)
+	if err != nil {
+		s.serverError(w, "list failed reviews", err)
+		return
+	}
+	if len(urls) == 0 {
+		http.Error(w, "this run has no failed reviews to retry", http.StatusNotFound)
+		return
+	}
+
+	queued, duplicates := 0, 0
+	for _, url := range urls {
+		status, _ := s.enqueue(runJob{kind: runReview, url: url})
+		switch status {
+		case enqStarted, enqQueued:
+			queued++
+		case enqDuplicate:
+			duplicates++
+		case enqShutdown:
+			http.Error(w, "server is shutting down", http.StatusServiceUnavailable)
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(struct {
+		Queued     int `json:"queued"`
+		Duplicates int `json:"duplicates"`
+	}{Queued: queued, Duplicates: duplicates})
 }
 
 // handleReconcile re-checks every pending PR's live GitHub state and dismisses
