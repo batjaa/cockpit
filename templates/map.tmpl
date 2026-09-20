@@ -1,0 +1,70 @@
+{{define "layout"}}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.Title}} — cockpit</title><script src="/static/tailwind.js"></script><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet"></head><body>
+<a class="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-[#FBF8F1] focus:p-3 focus:text-[#1F1B16]" href="#map-detail">Skip to selected detail</a>
+<a class="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-[#FBF8F1] focus:p-3 focus:text-[#1F1B16]" href="#map-workstreams">Skip to workstreams</a>
+<section class="min-h-screen bg-[#F5F1E8] font-['Space_Grotesk',system-ui,sans-serif] text-[#1F1B16]" aria-labelledby="map-title">
+  <header class="border-b border-[#C8C3B5] px-4 py-4 sm:px-6">
+    <div class="flex flex-wrap items-baseline gap-x-4 gap-y-2">
+      <div class="font-['JetBrains_Mono',monospace] text-sm font-semibold tracking-[0.15em]">● COCKPIT <span class="text-[#6E604D]">MAP</span></div>
+      <h1 id="map-title" class="text-xl font-semibold">Workstreams</h1>
+      <p class="font-['JetBrains_Mono',monospace] text-xs text-[#6E604D]">Local work, explicit obligations, readable archive.</p>
+      <form action="/map" class="ml-auto flex min-h-11 items-center gap-2" role="search">
+        <input type="hidden" name="workstream" value="{{.Query.WorkstreamID}}"><input type="hidden" name="item" value="{{.Query.ItemID}}"><input type="hidden" name="tab" value="{{.Query.Tab}}"><input type="hidden" name="filter" value="{{.Query.Filter}}">
+        <label class="sr-only" for="map-search">Search workstreams, items, people, or tickets</label>
+        <input id="map-search" name="q" value="{{.Query.Search}}" placeholder="Search workstreams · ask · person · ticket" class="min-h-11 w-64 border border-[#C8C3B5] bg-[#FBF8F1] px-3 text-sm outline-none focus:border-[#1F1B16]" autocomplete="off">
+        <button class="min-h-11 border border-[#C8C3B5] px-3 font-['JetBrains_Mono',monospace] text-xs hover:bg-[#ECE6D6] focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-[#1F1B16]">Search <kbd class="border border-[#C8C3B5] px-1">/</kbd></button>
+      </form>
+    </div>
+    <div class="mt-3 flex flex-wrap gap-x-5 gap-y-2 border-t border-[#C8C3B5] pt-3 font-['JetBrains_Mono',monospace] text-xs text-[#6E604D]">
+      <span><kbd class="border border-[#C8C3B5] px-1">j</kbd> <kbd class="border border-[#C8C3B5] px-1">k</kbd> move</span><span><kbd class="border border-[#C8C3B5] px-1">g</kbd><kbd class="border border-[#C8C3B5] px-1">w</kbd> workstreams</span><span><kbd class="border border-[#C8C3B5] px-1">e</kbd> open</span><button type="button" class="underline hover:text-[#1F1B16]" data-map-help> <kbd class="border border-[#C8C3B5] px-1">?</kbd> shortcuts</button>
+    </div>
+  </header>
+
+  <section class="grid grid-cols-2 border-b border-[#C8C3B5] bg-[#FBF8F1] sm:grid-cols-3 lg:grid-cols-6" aria-label="Map gauges"><div class="border-r border-[#C8C3B5] p-3"><p class="font-['JetBrains_Mono',monospace] text-[10px] text-[#6E604D]">UNPROCESSED</p><p class="mt-1 text-sm">Unavailable</p></div><div class="border-r border-[#C8C3B5] p-3"><p class="font-['JetBrains_Mono',monospace] text-[10px] text-[#6E604D]">SLA RISK</p><p class="mt-1 text-sm">Unavailable</p></div><div class="border-r border-[#C8C3B5] p-3"><p class="font-['JetBrains_Mono',monospace] text-[10px] text-[#6E604D]">WORKSTREAMS</p><p class="mt-1 text-xl font-semibold">{{.ActiveWorkstreamCount}}</p></div><div class="border-r border-[#C8C3B5] p-3"><p class="font-['JetBrains_Mono',monospace] text-[10px] text-[#6E604D]">STAFF RADAR</p><p class="mt-1 text-sm">Unavailable</p></div><div class="border-r border-[#C8C3B5] p-3"><p class="font-['JetBrains_Mono',monospace] text-[10px] text-[#6E604D]">TODAY'S FOCUS</p><p class="mt-1 text-sm">Unavailable</p></div><div class="p-3"><p class="font-['JetBrains_Mono',monospace] text-[10px] text-[#6E604D]">PAGES · 24H</p><p class="mt-1 text-sm">Unavailable</p></div></section>
+  <div class="flex flex-wrap gap-3 border-b border-[#C8C3B5] px-4 py-2 font-['JetBrains_Mono',monospace] text-xs text-[#6E604D]"><a class="underline hover:text-[#1F1B16]" href="/">Dashboard</a><a class="underline hover:text-[#1F1B16]" href="/sessions">Sessions</a><span>slack unavailable</span><span>github unavailable</span><span>calendar unavailable</span><span>vault {{if .Mirror.Disabled}}disabled{{else}}{{.Mirror.Pending}} pending · {{.Mirror.Errors}} errors · {{.Mirror.Conflicts}} conflicts{{end}}</span></div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-12">
+    <aside id="map-workstreams" tabindex="-1" class="border-b border-[#C8C3B5] lg:col-span-3 lg:border-b-0 lg:border-r" aria-labelledby="workstreams-heading">
+      <div class="flex items-center justify-between gap-3 border-b border-[#C8C3B5] bg-[#ECE6D6] px-4 py-3">
+        <div><h2 id="workstreams-heading" class="font-['JetBrains_Mono',monospace] text-xs font-semibold tracking-wide text-[#7A4709]">YOUR WORKSTREAMS</h2><p class="mt-1 text-xs text-[#6E604D]">{{.Workstreams.Total}} matching</p></div>
+        <a href="{{mapNav .Query "form" "new"}}" class="inline-flex min-h-11 items-center border border-[#C8C3B5] bg-[#FBF8F1] px-3 font-['JetBrains_Mono',monospace] text-xs hover:bg-[#F5F1E8]">+ New</a>
+      </div>
+      <nav class="flex gap-2 border-b border-[#C8C3B5] px-3 py-2 text-xs" aria-label="Workstream filters"><a class="min-h-11 px-2 py-3 underline" href="{{mapNav .Query "filter" "active" "workstreams_cursor" ""}}">Active</a><a class="min-h-11 px-2 py-3 underline" href="{{mapNav .Query "filter" "completed" "workstreams_cursor" ""}}">Completed</a><a class="min-h-11 px-2 py-3 underline" href="{{mapNav .Query "filter" "archived" "workstreams_cursor" ""}}">Archived</a></nav>
+      <nav aria-label="Workstreams">
+        {{range .Workstreams.Rows}}
+        <a data-map-row href="{{mapNav $.Query "workstream" .ID "item" "" "tab" "overview"}}" class="block min-h-11 border-b border-[#C8C3B5] px-4 py-3 hover:bg-[#ECE6D6] focus:outline focus:outline-2 focus:outline-offset-[-2px] focus:outline-[#1F1B16] {{if $.Selected}}{{if eq $.Selected.ID .ID}}border-l-4 border-l-[#D88A2C] bg-[#FBF8F1]{{end}}{{end}}">
+          <span class="grid gap-1"><span class="truncate font-medium">{{.Name}}</span><span class="shrink-0 font-['JetBrains_Mono',monospace] text-[11px] {{if eq .Attention "needs-attention"}}text-[#7A4709]{{else}}text-[#6E604D]{{end}}">{{mapStatus .Attention}}{{if .AttentionCount}} ({{.AttentionCount}}){{end}}</span></span>
+          <span class="mt-1 block truncate font-['JetBrains_Mono',monospace] text-[11px] text-[#6E604D]">{{.Outcome}}{{if .Owner}} · {{.Owner}}{{end}}{{if .TargetDate}} · target {{.TargetDate}}{{end}}</span>
+        </a>
+        {{else}}
+        <div class="p-4 text-sm text-[#6E604D]">No workstreams match this view. <a class="underline text-[#1F1B16]" href="{{mapNav .Query "form" "new"}}">Create a workstream</a>.</div>
+        {{end}}
+      </nav>
+      {{if .Workstreams.PreviousCursor}}<a class="m-4 inline-flex min-h-11 items-center underline" href="{{mapNav .Query "workstreams_cursor" .Workstreams.PreviousCursor}}">Previous 50</a>{{end}}
+      {{if .Workstreams.NextCursor}}<a class="m-4 inline-flex min-h-11 items-center border border-[#C8C3B5] px-3 text-sm hover:bg-[#ECE6D6]" href="{{mapNav .Query "workstreams_cursor" .Workstreams.NextCursor}}">Next 50</a>{{end}}
+      <section class="border-t border-[#C8C3B5] bg-[#ECE6D6] p-4" aria-labelledby="staff-radar-heading"><h2 id="staff-radar-heading" class="font-['JetBrains_Mono',monospace] text-xs font-semibold tracking-wide text-[#7A4709]">STAFF RADAR</h2><p class="mt-2 text-sm text-[#6E604D]">Not available in this module. Add a local workstream to track cross-team work.</p></section>
+    </aside>
+
+    <main id="map-detail" class="min-w-0 lg:col-span-6" tabindex="-1">
+      {{if .Form.Message}}<div role="alert" tabindex="-1" class="m-4 border border-[#D88A2C] bg-[#F2DBB5] p-3 text-sm"><strong>{{if .Form.Conflict}}Review conflict{{else}}Save needs attention{{end}}</strong><p>{{.Form.Message}}</p>{{if .Form.Errors}}<ul class="mt-2 list-disc pl-5">{{range $field, $message := .Form.Errors}}<li>{{$field}}: {{$message}}</li>{{end}}</ul>{{end}}{{if .Form.Conflict}}<a class="mt-2 inline-block underline" href="{{mapNav .Query}}">Reload current record</a>{{end}}</div>{{end}}
+      {{if .NotFound}}<div class="m-4 border border-[#C8C3B5] bg-[#FBF8F1] p-4"><h2 class="font-semibold">That record is unavailable</h2><p class="mt-1 text-sm text-[#6E604D]">{{.NotFound}}</p><a href="/map" class="mt-3 inline-flex min-h-11 items-center border border-[#C8C3B5] px-3 text-sm hover:bg-[#ECE6D6]">Browse workstreams</a></div>{{end}}
+      {{if .Selected}}
+        <header class="border-b border-[#C8C3B5] px-5 py-5 sm:px-6"><div class="flex flex-wrap items-baseline gap-3"><span class="font-['JetBrains_Mono',monospace] text-xs font-semibold tracking-wide text-[#7A4709]">WORKSTREAM</span><h2 class="min-w-0 break-words text-2xl font-semibold">{{.Selected.Name}}</h2><span class="font-['JetBrains_Mono',monospace] text-xs {{if .Selected.Attention}}text-[#7A4709]{{else}}text-[#6E604D]{{end}}">{{mapStatus .Selected.Attention}}</span></div><p class="mt-2 max-w-3xl break-words text-sm leading-6">{{.Selected.Outcome}}</p><p class="mt-2 font-['JetBrains_Mono',monospace] text-xs break-words text-[#6E604D]">owner {{.Selected.Owner}}{{if .Selected.Sponsor}} · sponsor {{.Selected.Sponsor}}{{end}}{{if .Selected.TargetDate}} · target {{.Selected.TargetDate}}{{end}}{{if .Selected.Archived}} · archived{{end}}</p>
+          <nav class="mt-4 flex flex-wrap gap-2" aria-label="Workstream views">{{range $tab := (slice "overview" "graph" "timeline" "obsidian")}}<a class="inline-flex min-h-11 items-center border border-[#C8C3B5] px-3 font-['JetBrains_Mono',monospace] text-xs hover:bg-[#ECE6D6] {{if eq $.Query.Tab $tab}}bg-[#D88A2C]{{end}}" href="{{mapNav $.Query "tab" $tab}}">{{$tab}}</a>{{end}}</nav>
+        </header>
+        {{if or .Selected.Archived (eq .Selected.Lifecycle "completed")}}<div class="m-5 border border-[#C8C3B5] bg-[#ECE6D6] p-3 text-sm"><strong>{{if .Selected.Archived}}Archived{{else}}Completed{{end}} · read-only</strong><p>Restore or reopen this workstream before changing its contents.</p></div>{{end}}
+        {{if .Selected.CompletionNote}}<section class="mx-5 my-4 border-l-4 border-[#D88A2C] pl-3"><h3 class="text-sm font-semibold">Recorded completion outcome</h3><p class="whitespace-pre-wrap break-words text-sm">{{.Selected.CompletionNote}}</p></section>{{end}}
+        {{template "map-workstream-actions" .}}
+        {{if eq .Query.Tab "graph"}}{{template "map-graph" .}}{{else if eq .Query.Tab "timeline"}}{{template "map-timeline" .}}{{else if eq .Query.Tab "obsidian"}}{{template "map-obsidian" .}}{{else}}{{template "map-overview" .}}{{end}}
+        {{if .SelectedItem}}{{template "map-item-detail" .}}{{end}}
+      {{else}}
+        <section id="create-workstream" class="p-5 sm:p-6"><h2 class="text-xl font-semibold">Start with an outcome</h2><p class="mt-1 text-sm text-[#6E604D]">Create a local workstream, then add the tasks, references, asks, and signals that support it.</p>{{template "map-workstream-form" .}}</section>
+      {{end}}
+    </main>
+
+    <aside class="border-t border-[#C8C3B5] bg-[#ECE6D6] p-4 lg:col-span-3 lg:border-l lg:border-t-0"><h2 class="font-['JetBrains_Mono',monospace] text-xs font-semibold tracking-wide text-[#7A4709]">INBOUND &amp; CALENDAR</h2><p class="mt-2 text-sm text-[#6E604D]">Not available in this module. No provider is connected, so Cockpit does not present sample activity as live data.</p><div class="mt-6 border-t border-[#C8C3B5] pt-4"><h2 class="font-['JetBrains_Mono',monospace] text-xs font-semibold tracking-wide text-[#7A4709]">VAULT</h2><p class="mt-2 font-['JetBrains_Mono',monospace] text-xs text-[#6E604D]">{{.Mirror.Pending}} pending · {{.Mirror.Errors}} errors · {{.Mirror.Conflicts}} conflicts</p></div></aside>
+  </div>
+</section>
+<dialog data-map-dialog class="border border-[#C8C3B5] bg-[#FBF8F1] p-5 text-[#1F1B16] backdrop:bg-[#1F1B16]/30"><h2 class="text-lg font-semibold">Map shortcuts</h2><dl class="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm"><dt><kbd>j</kbd> <kbd>k</kbd></dt><dd>Move through visible workstreams</dd><dt><kbd>g</kbd><kbd>w</kbd></dt><dd>Jump to workstreams</dd><dt><kbd>e</kbd></dt><dd>Open selected workstream</dd><dt><kbd>/</kbd></dt><dd>Focus search</dd></dl><form method="dialog" class="mt-5"><button class="min-h-11 border border-[#C8C3B5] px-3 hover:bg-[#ECE6D6]">Close</button></form></dialog>
+<script src="/static/map.js"></script>
+</body></html>{{end}}

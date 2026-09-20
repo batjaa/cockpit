@@ -31,9 +31,11 @@ var (
 )
 
 type server struct {
-	db      *sql.DB
-	cfg     Config
-	baseCtx context.Context // cancelled on shutdown; runs inherit it
+	db          *sql.DB
+	cfg         Config
+	baseCtx     context.Context // cancelled on shutdown; runs inherit it
+	workstreams *WorkstreamStore
+	mirror      *MirrorWorker
 
 	// Run worker: a single goroutine drains the queue serially so heavy
 	// claude reviews never overlap. runMu guards queue/active/current.
@@ -53,6 +55,9 @@ type server struct {
 // run row before the process exits.
 func Serve(ctx context.Context, db *sql.DB, cfg Config) error {
 	s := &server{db: db, cfg: cfg, baseCtx: ctx}
+	if err := s.configureWorkstreams(); err != nil {
+		return err
+	}
 	scanSessionsFn = ScanSessions // wire the sessions scanner (see sessions_server.go)
 	mux := http.NewServeMux()
 	s.routes(mux)
@@ -70,6 +75,17 @@ func Serve(ctx context.Context, db *sql.DB, cfg Config) error {
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", cfg.HTTP.Addr, err)
 	}
+	defer ln.Close()
+	mirrorCtx, stopMirror := context.WithCancel(ctx)
+	mirrorDone := make(chan struct{})
+	go func() {
+		defer close(mirrorDone)
+		s.runWorkstreamMirror(mirrorCtx)
+	}()
+	defer func() {
+		stopMirror()
+		<-mirrorDone
+	}()
 	if n, err := CleanupStaleRuns(ctx, db, time.Now()); err != nil {
 		slog.Warn("cleanup stale runs", "err", err)
 	} else if n > 0 {
@@ -111,6 +127,8 @@ func Serve(ctx context.Context, db *sql.DB, cfg Config) error {
 }
 
 func (s *server) routes(mux *http.ServeMux) {
+	s.workstreamRoutes(mux)
+	s.mapRoutes(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok"))
 	})

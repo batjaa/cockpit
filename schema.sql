@@ -100,3 +100,121 @@ CREATE TABLE IF NOT EXISTS scan_state (
   source     TEXT PRIMARY KEY,             -- 'local:claude', 'devbox1:codex', ...
   high_water DATETIME NOT NULL
 );
+
+-- Map/workstreams are wholly local. IDs are random opaque strings rather
+-- than titles so renames, moves, and vault paths preserve identity.
+CREATE TABLE IF NOT EXISTS workstreams (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  owner TEXT NOT NULL DEFAULT 'me',
+  sponsor TEXT NOT NULL DEFAULT '',
+  target_date TEXT NOT NULL DEFAULT '', -- YYYY-MM-DD, interpreted in configured location
+  notes TEXT NOT NULL DEFAULT '',
+  lifecycle TEXT NOT NULL DEFAULT 'active' CHECK(lifecycle IN ('active','completed')),
+  archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)),
+  archived_at DATETIME,
+  completion_note TEXT NOT NULL DEFAULT '',
+  revision INTEGER NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_workstreams_list ON workstreams(archived, lifecycle, name, id);
+CREATE INDEX IF NOT EXISTS idx_workstreams_target ON workstreams(target_date);
+
+CREATE TABLE IF NOT EXISTS sources (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  url TEXT NOT NULL,
+  canonical_id TEXT NOT NULL UNIQUE,
+  label TEXT NOT NULL DEFAULT '',
+  pr_id INTEGER REFERENCES prs(id),
+  revision INTEGER NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sources_pr ON sources(pr_id);
+
+CREATE TABLE IF NOT EXISTS workstream_items (
+  id TEXT PRIMARY KEY,
+  workstream_id TEXT REFERENCES workstreams(id),
+  kind TEXT NOT NULL CHECK(kind IN ('task','reference','ask','signal')),
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  source_id TEXT REFERENCES sources(id),
+  due_date TEXT NOT NULL DEFAULT '',
+  tracking_state TEXT NOT NULL DEFAULT '' CHECK(tracking_state IN ('','open','in_progress','blocked','done','cancelled')),
+  blocker_reason TEXT NOT NULL DEFAULT '',
+  counterpart TEXT NOT NULL DEFAULT '',
+  ask_status TEXT NOT NULL DEFAULT '' CHECK(ask_status IN ('','open','waiting','resolved','cancelled')),
+  follow_up_at DATETIME,
+  last_contact_at DATETIME,
+  value TEXT NOT NULL DEFAULT '',
+  unit TEXT NOT NULL DEFAULT '',
+  observed_at DATETIME,
+  assessment TEXT NOT NULL DEFAULT '' CHECK(assessment IN ('','normal','concerning','unknown')),
+  review_by DATETIME,
+  detached_at DATETIME,
+  revision INTEGER NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_items_parent ON workstream_items(workstream_id, detached_at, kind, id);
+CREATE INDEX IF NOT EXISTS idx_items_due ON workstream_items(due_date, tracking_state, detached_at);
+CREATE INDEX IF NOT EXISTS idx_items_followup ON workstream_items(follow_up_at, ask_status, detached_at);
+CREATE INDEX IF NOT EXISTS idx_items_source ON workstream_items(source_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_items_active_reference_source
+  ON workstream_items(workstream_id, source_id)
+  WHERE kind='reference' AND detached_at IS NULL AND source_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS decisions (
+  id TEXT PRIMARY KEY,
+  workstream_id TEXT NOT NULL REFERENCES workstreams(id),
+  item_id TEXT REFERENCES workstream_items(id),
+  source_id TEXT REFERENCES sources(id),
+  note TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_decisions_parent ON decisions(workstream_id, created_at DESC, id DESC);
+
+CREATE TABLE IF NOT EXISTS timeline_events (
+  id TEXT PRIMARY KEY,
+  workstream_id TEXT NOT NULL REFERENCES workstreams(id),
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  description TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  created_at DATETIME NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_timeline_parent ON timeline_events(workstream_id, created_at DESC, id DESC);
+
+CREATE TABLE IF NOT EXISTS mirror_states (
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  desired_revision INTEGER NOT NULL,
+  last_written_revision INTEGER NOT NULL DEFAULT 0,
+  last_success_revision INTEGER NOT NULL DEFAULT 0,
+  last_checksum TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','synced','error','conflict')),
+  last_attempt_at DATETIME,
+  last_success_at DATETIME,
+  error TEXT NOT NULL DEFAULT '',
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at DATETIME,
+  last_operational_state TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY(entity_type, entity_id)
+);
+-- The retry index is installed by OpenDB after additive column migrations.
+
+CREATE TABLE IF NOT EXISTS operation_receipts (
+  operation_id TEXT PRIMARY KEY,
+  request_hash TEXT NOT NULL DEFAULT '',
+  action TEXT NOT NULL,
+  workstream_id TEXT NOT NULL DEFAULT '',
+  item_id TEXT NOT NULL DEFAULT '',
+  decision_id TEXT NOT NULL DEFAULT '',
+  revision INTEGER NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL
+);

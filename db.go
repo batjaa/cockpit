@@ -62,6 +62,10 @@ func OpenDB(path string) (*sql.DB, error) {
 		`ALTER TABLE comments ADD COLUMN diff_hunk TEXT`,
 		`ALTER TABLE reviews ADD COLUMN review_brief TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE reviews ADD COLUMN author_message TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE mirror_states ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE mirror_states ADD COLUMN next_attempt_at DATETIME`,
+		`ALTER TABLE mirror_states ADD COLUMN last_operational_state TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE operation_receipts ADD COLUMN request_hash TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, m := range migrations {
 		if _, err := db.Exec(m); err != nil {
@@ -70,6 +74,10 @@ func OpenDB(path string) (*sql.DB, error) {
 				return nil, fmt.Errorf("migrate (%s): %w", m, err)
 			}
 		}
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_mirror_pending ON mirror_states(status, next_attempt_at, entity_type, entity_id)`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("create mirror retry index: %w", err)
 	}
 	return db, nil
 }

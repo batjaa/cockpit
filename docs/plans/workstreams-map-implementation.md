@@ -136,12 +136,12 @@ Startup runs additive schema creation, binds localhost before worker startup, an
 
 ## Implementation mini-tickets
 
-- [ ] **T1 — Local workstream commands and projections.** Schema/migrations; CRUD and lifecycle; source identity; attention/time; transaction/CAS/idempotency; bounded search/pagination; HTTP security. Backend files and real-storage handler tests. Verify red→green slices, regression suite and preserved legacy data.
-- [ ] **T2 — Durable Markdown mirror.** Stable files and frontmatter, relative links, transactional pending work, single writer, retry/restart, revision-safe acknowledgement, filesystem conflicts. Mirror files plus public HTTP/drain tests. Verify real failure/recovery fixtures and no private vault access.
-- [ ] **T3 — Paper Amber Map.** SSR templates, local forms/actions, three branches and four tabs, all visible states, URL navigation, keyboard/focus and responsive layout. Template/script/GET-render files. Verify browser interactions rather than generated-script text.
+- [x] **T1 — Local workstream commands and projections.** Schema/migrations; CRUD and lifecycle; source identity; attention/time; transaction/CAS/idempotency; bounded search/pagination; HTTP security. Backend files and real-storage handler tests. Verify red→green slices, regression suite and preserved legacy data.
+- [x] **T2 — Durable Markdown mirror.** Stable files and frontmatter, relative links, transactional pending work, single writer, retry/restart, revision-safe acknowledgement, filesystem conflicts. Mirror files plus public HTTP/drain tests. Verify real failure/recovery fixtures and no private vault access.
+- [x] **T3 — Paper Amber Map.** SSR templates, local forms/actions, three branches and four tabs, all visible states, URL navigation, keyboard/focus and responsive layout. Template/script/GET-render files. Verify browser interactions rather than generated-script text.
 - [ ] **T4 — Integration and acceptance.** Configuration/startup/shutdown, background fixture preview, README, complete representative walkthrough, scale and migration tests, full suite/race/vet/build, browser evidence, four-axis implementation review and confirmed fixes.
 
-Each slice must pass its completion gate before its checkpoint is committed/pushed. No external tracker ticket closure applies. `/simplify` is not installed; perform equivalent reuse/quality/efficiency review and record that limitation. No built-in code-review tool is exposed; use a dedicated Terra bug-review pass and report that substitution.
+Each slice must pass its completion gate before its checkpoint is committed/pushed. Execution adaptation, explicitly reported to the user: the parallel T1/T2/T3 lanes form one integrated feature checkpoint, followed by the T4 completion/roadmap record, because the shared contracts must be verified together. No external tracker ticket closure applies. `/simplify` is not installed; equivalent reuse/quality/efficiency review was performed. No built-in code-review tool is exposed; a dedicated Terra bug-review pass substituted for it. See the [four-axis review](workstreams-map-review.md) for findings and dispositions.
 
 ## Not in scope
 
@@ -152,4 +152,16 @@ Each slice must pass its completion gate before its checkpoint is committed/push
 
 ## Verification record
 
-Pending implementation. Record actual commands, outcomes, browser evidence, review findings and accepted limitations here before marking the module done.
+Verified locally on 2026-09-20, using only temporary databases and vaults:
+
+- `go test ./... -count=1` passed after the final production changes (31.718s on this machine). This includes existing PR/Sessions regression coverage, migration preservation, the 100-workstream/10,000-item fixture, controlled-clock/DST behavior, and real-filesystem mirror failures/recovery.
+- `go test -race ./... -count=1` passed after the final responsive fixes (60.154s).
+- `go vet ./...` passed. `go build -o /tmp/cockpit-map-preview.wIvO0V/cockpit-final .` passed; the binary's `version` subcommand prints `dev` for this local build.
+- The concurrent HTTP-save/publisher/legacy-write regression also passes 10 consecutive runs.
+- The opt-in `TestMapPreview` harness runs the real embedded application on `127.0.0.1:8766`, with discovery/review/session jobs disabled. `/map` returns HTTP 200. Preview storage is `/tmp/cockpit-map-preview.wIvO0V`, not the normal Cockpit database or vault.
+- `scripts/verify-map.mjs` passed against that preview, with external requests blocked. It exercises create/cancel, all four item kinds, cached PR search/no-match/pagination/selection, field round-trips, decisions, all four views, copied URL state, two-tab stale conflicts retaining drafts/revisions, confirmed detach/restore, movement between two workstreams, completion override, archive/restore/reopen, task/ask resolution and later normal signal observation, keyboard typing suppression and focus restoration.
+- Browser boundary fixtures use a 200-character workstream name, a 190-character item title, a 32,000-character description, and a 4,096-character unbroken source URL. Overview, graph, and Markdown views have no page-wide overflow at 375/768/1440px. Long graph-text and export-title overflow failures were reproduced and fixed before the passing rerun.
+- Screenshots are in the session-local `/tmp/cockpit-map-preview.wIvO0V/acceptance-final` directory (not committed); README documents how to recreate the seeded preview and evidence. Normal-content screenshots were also captured during the earlier walkthrough.
+- Independent Terra Bugs/Spec/Standards/Design review and targeted follow-ups are recorded in [the review report](workstreams-map-review.md). Confirmed correctness/spec findings were fixed with regressions; one shared-item-model maintainability tradeoff is explicitly accepted. No new integration, provider write, or AI action is implemented or implied.
+
+Original checkout verification: `/Users/batjargalbatbold/git/cockpit` remains on `main` with its pre-existing README/research/PoC/script changes intact. Work is isolated on `feat/workstreams-map` in `/Users/batjargalbatbold/git/cockpit-workstreams-map`. Background preview remains running for manual inspection. Feature publication and the T4/roadmap rollup are the final completion steps; no merge is requested.

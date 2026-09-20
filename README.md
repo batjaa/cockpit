@@ -6,8 +6,13 @@ filter, stores findings in SQLite, and serves a web UI for picking which
 comments to post. Each review includes a private structured risk brief for the
 reviewer and, only when warranted, a separate author-facing message.
 
-Single Go binary. SQLite (pure-Go, no CGO). Tailwind vendored as a single
-file. Shells out to `gh` and `claude`.
+The **Map** page organizes outcome-oriented workstreams with local tasks,
+references, cross-team asks, manual signals, decisions, and a one-way Markdown
+archive. Map works without provider or model access; the PR review pipeline
+continues to use `gh` and `claude`.
+
+Single Go binary. SQLite (pure-Go, no CGO). Server-rendered HTML and Tailwind
+vendored as a single file.
 
 See [docs/pr-review-spec.md](./docs/pr-review-spec.md) for full design and roadmap.
 
@@ -29,7 +34,7 @@ else (config, SQLite db) is created under `~/.cockpit` on first run.
 
 | Tool | Purpose | Check |
 |---|---|---|
-| `go` 1.22+ | build | `go version` |
+| `go` 1.25+ | build | `go version` |
 | `gh` | PR discovery + posting | `gh auth status` |
 | `claude` CLI | invoke the review skill | `which claude` |
 | `pr-review-structured` skill | review engine | `cockpit install-skill` (vendored in this repo) |
@@ -73,6 +78,10 @@ First run creates `~/.cockpit/config.json` with defaults:
     "remotes": [],
     "scan_claude": true, "scan_codex": true, "scan_cursor": true,
     "scan_interval_minutes": 20
+  },
+  "workstreams": {
+    "timezone": "",
+    "mirror": {}
   }
 }
 ```
@@ -152,6 +161,103 @@ cockpit version                    # print the build version
 ```
 
 Override the config path: `--config /some/path.json`.
+
+This changes the configuration file, **not** the database location. The normal
+binary always uses `~/.cockpit/cockpit.db`. Use the isolated preview described
+below for browser acceptance instead of pointing a test at personal data.
+
+## Workstreams and Map
+
+Open **Map** in the navigation, or visit `/map`. The existing PR dashboard
+remains the default page. Create a workstream with a name and desired outcome,
+then add local tasks, labelled source references, asks, manual observations,
+and decisions. A cached PR reference is context; a separate review/merge/ship
+task represents an obligation. A source merge never completes that task for you.
+
+The overview, static graph, timeline, and Obsidian tabs share the same records.
+Attention explains blocked/overdue tasks, overdue asks, concerning signals, and
+missed target dates. Missing or stale data and mirror failures are separate
+warnings, not a claim about the workstream's health. Completion is an explicit
+confirmed action with an outcome note. Detachment, archive, and completion keep
+history and can be reversed through the appropriate restore/reopen action.
+
+Map does not ingest Gmail, Slack, Calendar, Zoom, or other providers. Attached
+URLs are saved without fetching previews. Inbound, staff-radar, calendar, and
+AI-drafting surfaces are clearly unavailable in this module.
+
+`workstreams.timezone` accepts an IANA timezone such as
+`America/Los_Angeles`; empty uses the machine timezone. Task/target dates become
+overdue on the following local day. Follow-up and observation times are stored
+as UTC instants and displayed locally.
+
+The mirror defaults to `~/cockpit-vault`. To select a different existing or new
+directory, set an absolute path:
+
+```json
+"workstreams": {
+  "timezone": "America/Los_Angeles",
+  "mirror": { "enabled": true, "root": "/absolute/path/to/cockpit-vault" }
+}
+```
+
+Set `"enabled": false` to disable filesystem exports while continuing to save
+workstreams in SQLite. Missing `enabled` means enabled, including older configs.
+The vault groups stable-ID Markdown files by entity kind; renaming a workstream
+does not change its identity or filename.
+
+**Saved in Cockpit** and **synced to vault** are different outcomes. Pending
+exports survive restart; a failed export does not roll back a local save. An
+externally changed file or an unexpected existing path produces a conflict.
+Retry never force-overwrites it: reconcile/restore the generated file, or move
+the conflicting file aside, then retry. Editing Markdown does not import changes
+into Cockpit. Avoid simultaneous editing of generated files while exports run;
+the local filesystem does not provide an atomic compare-and-swap protocol with
+other applications. Symlink targets and unrelated notes are not managed.
+
+The implementation keeps domain mutations, semantic history, and pending mirror
+revisions in one SQLite transaction. A single background worker performs bounded
+retries and atomic file writes after commit. Map reads are local and side-effect
+free. The module's contracts and acceptance requirements are in
+[the workstream spec](docs/specs/workstreams-map.md).
+
+### Isolated browser preview
+
+The opt-in test harness runs the actual embedded application with a separate
+database and vault, with all discovery/review/session jobs disabled:
+
+```bash
+preview_dir=$(mktemp -d /tmp/cockpit-preview.XXXXXX)
+go test -c -o "$preview_dir/cockpit-preview.test"
+COCKPIT_PREVIEW_DIR="$preview_dir" "$preview_dir/cockpit-preview.test" \
+  -test.run '^TestMapPreview$' -test.timeout 0 -test.v
+```
+
+It listens on `http://127.0.0.1:8766` by default; `COCKPIT_PREVIEW_ADDR` selects
+another localhost port. Stop it with Ctrl-C. The directory remains available
+for inspecting test data and Markdown; no real user vault is touched. Ordinary
+`go test ./...` skips this opt-in long-running harness.
+
+For the optional browser acceptance walkthrough, start the preview with
+`COCKPIT_PREVIEW_SEED=1` to add local cached-PR fixtures (no provider requests).
+Use a temporary Playwright installation and an existing Chrome executable:
+
+```bash
+browser_tools_dir=$(mktemp -d /tmp/cockpit-browser.XXXXXX)
+npm install --prefix "$browser_tools_dir" playwright
+COCKPIT_PLAYWRIGHT_MODULE="$browser_tools_dir/node_modules/playwright/index.mjs" \
+  node scripts/verify-map.mjs
+```
+
+`COCKPIT_CHROME` overrides the default macOS Chrome path;
+`COCKPIT_MAP_BASE_URL` selects another loopback preview and
+`COCKPIT_MAP_EVIDENCE` selects the screenshot directory. Run this only against
+the isolated, seeded preview: it deliberately creates acceptance fixtures.
+The runner blocks external requests and checks all four item kinds, cached PR
+selection, conflicts, lifecycle, movement, keyboard controls, attention
+resolution, and maximum-length layouts at 375/768/1440px. Playwright is not a
+production dependency.
+
+## PR review workflow
 
 The server also accepts a "Run now" button on the dashboard that triggers
 the same flow as `--run-once`, with status polling and a serial in-memory

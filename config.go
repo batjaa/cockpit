@@ -9,12 +9,26 @@ import (
 )
 
 type Config struct {
-	Search   string         `json:"search"`
-	Schedule ScheduleConfig `json:"schedule"`
-	Claude   ClaudeConfig   `json:"claude"`
-	Review   ReviewConfig   `json:"review"`
-	HTTP     HTTPConfig     `json:"http"`
-	Sessions SessionsConfig `json:"sessions"`
+	Search      string            `json:"search"`
+	Schedule    ScheduleConfig    `json:"schedule"`
+	Claude      ClaudeConfig      `json:"claude"`
+	Review      ReviewConfig      `json:"review"`
+	HTTP        HTTPConfig        `json:"http"`
+	Sessions    SessionsConfig    `json:"sessions"`
+	Workstreams WorkstreamsConfig `json:"workstreams"`
+}
+
+// WorkstreamsConfig controls local date interpretation and the one-way archive.
+// An absent mirror.enabled value keeps the approved on-by-default behavior;
+// an explicit false disables filesystem writes without disabling local saves.
+type WorkstreamsConfig struct {
+	Timezone string                 `json:"timezone,omitempty"`
+	Mirror   WorkstreamMirrorConfig `json:"mirror"`
+}
+
+type WorkstreamMirrorConfig struct {
+	Enabled *bool  `json:"enabled,omitempty"`
+	Root    string `json:"root,omitempty"`
 }
 
 // ReviewConfig controls what gets reviewed.
