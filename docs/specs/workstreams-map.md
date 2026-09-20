@@ -1,6 +1,6 @@
 # Spec: Workstreams + Map Page
 
-Status: implementation approved by the user on 2026-09-20; in progress. See [execution and verification plan](../plans/workstreams-map-implementation.md).
+Status: implemented and verified on 2026-09-20, pushed on `feat/workstreams-map` (implementation checkpoint `9690f50`; not merged). See [execution and verification](../plans/workstreams-map-implementation.md) and [review dispositions](../plans/workstreams-map-review.md).
 
 ## Problem Statement
 

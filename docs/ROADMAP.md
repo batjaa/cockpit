@@ -4,7 +4,7 @@ This is a small index of the next three modules discussed for the approved Paper
 
 | Order | Module | Status | Scope / dependencies |
 |---|---|---|---|
-| 1 | [Workstreams + Map Page](specs/workstreams-map.md) | implementing | Approved 2026-09-20. Local workstreams, tasks/references/asks/signals, attention, Map views, history, and Markdown mirror. No new provider dependency |
+| 1 | [Workstreams + Map Page](specs/workstreams-map.md) | done | Implemented and verified 2026-09-20 on `feat/workstreams-map` (`9690f50`; not merged). Local workstreams, tasks/references/asks/signals, attention, Map views, history, and Markdown mirror. No new provider dependency |
 | 2 | Unified inbound stream | planned | Reuses workstream identities and reference attachment. Glean-first communication discovery and existing operational access; source completeness and triage contracts still need specification |
 | 3 | AI-drafted next actions | planned | Reuses workstream context and inbound provenance. Draft/accept locally; external actions always require explicit confirmation. Not yet specified |
 
