@@ -4,7 +4,7 @@ This is a small index of the next three modules discussed for the approved Paper
 
 | Order | Module | Status | Scope / dependencies |
 |---|---|---|---|
-| 1 | [Workstreams + Map Page](specs/workstreams-map.md) | specced | Engineering review pending. Local workstreams, tasks/references/asks/signals, attention, Map views, history, and Markdown mirror. No new provider dependency |
+| 1 | [Workstreams + Map Page](specs/workstreams-map.md) | implementing | Approved 2026-09-20. Local workstreams, tasks/references/asks/signals, attention, Map views, history, and Markdown mirror. No new provider dependency |
 | 2 | Unified inbound stream | planned | Reuses workstream identities and reference attachment. Glean-first communication discovery and existing operational access; source completeness and triage contracts still need specification |
 | 3 | AI-drafted next actions | planned | Reuses workstream context and inbound provenance. Draft/accept locally; external actions always require explicit confirmation. Not yet specified |
 
@@ -17,7 +17,7 @@ This is a small index of the next three modules discussed for the approved Paper
 - Separate workstream lifecycle, local tracking state, derived attention, source freshness, and mirror health.
 - Implement overview, static graph, timeline, and the one-way Markdown mirror. Show other planned console areas as unavailable, without fabricated data or active controls.
 - Testing boundaries were agreed with the user: existing HTTP behavior tests with real temporary SQLite/vault storage; browser acceptance checks; no live provider dependency.
-- Spec is written, not implementation-approved. Next action is engineering review; ticket creation follows accepted review.
+- Full implementation approved on 2026-09-20 using the `/implement` markdown-plan workflow; [execution and verification plan](plans/workstreams-map-implementation.md).
 
 ### Integration reuse and follow-on modules
 

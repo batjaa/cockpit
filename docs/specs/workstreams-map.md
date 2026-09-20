@@ -1,6 +1,6 @@
 # Spec: Workstreams + Map Page
 
-Status: specced; engineering review pending; not approved for implementation.
+Status: implementation approved by the user on 2026-09-20; in progress. See [execution and verification plan](../plans/workstreams-map-implementation.md).
 
 ## Problem Statement
 
@@ -246,4 +246,4 @@ The integration feasibility checks established Glean search access to Gmail, Cal
 
 Operational choices made explicit here include a fixed three-branch tree, separate reference/task semantics, manually recorded signals, separate attention/freshness/lifecycle states, no calculated overall percentage, recoverable detachment, and a one-way conflict-aware mirror. These are proposed implementation contracts pending engineering review, not additional claims of already shipped behavior.
 
-Next gate: plan-eng-review, including a design/accessibility pass before UI implementation. After review acceptance, split the module into tracker tickets. Do not create tickets or start implementation as part of writing this spec.
+Execution: the user approved full implementation using the `/implement` markdown-plan workflow and GPT-5.6 Terra subagents. The design/accessibility and engineering decisions are recorded in the execution plan. Its vertical slices serve as the mini-tickets; no external tracker tickets are required for this run.
